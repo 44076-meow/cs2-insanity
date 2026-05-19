@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommitTypeAll(deps)",
+    ":timezone(UTC)",
+    ":dependencyDashboard"
+  ],
+  "labels": ["deps"],
+  "prConcurrentLimit": 5,
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "description": "Group CounterStrikeSharp updates — API surface tracks together.",
+      "matchPackagePatterns": ["^CounterStrikeSharp\\."],
+      "groupName": "CounterStrikeSharp"
+    },
+    {
+      "description": "GitHub Actions are handled by dependabot.yml — leave them to it to avoid duplicate PRs.",
+      "matchManagers": ["github-actions"],
+      "enabled": false
+    },
+    {
+      "description": "hl2sdk / metamod-source are vendored at fixed branches in CI; don't auto-bump.",
+      "matchPackageNames": ["alliedmodders/hl2sdk", "alliedmodders/metamod-source"],
+      "enabled": false
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["deps", "security"]
+  }
+}

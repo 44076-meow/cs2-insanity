@@ -1,0 +1,58 @@
+name: Build reproducibility — sha256 drift
+description: |
+  The CI builds the C# DLL twice and compares sha256. File this when the
+  two hashes disagree, or when a local build doesn't match the CI baseline.
+title: "[ci-repro] sha256 mismatch: <pass A> vs <pass B>"
+labels: ["ci", "reproducibility", "needs-triage"]
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: `git rev-parse HEAD` of the build under test.
+    validations:
+      required: true
+  - type: input
+    id: pass-a
+    attributes:
+      label: Pass A sha256
+    validations:
+      required: true
+  - type: input
+    id: pass-b
+    attributes:
+      label: Pass B sha256
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where was the mismatch observed?
+      options:
+        - "CI workflow run (paste link below)"
+        - "Local build vs. CI baseline"
+        - "Two local builds on the same host"
+        - "Two local builds on different hosts"
+    validations:
+      required: true
+  - type: input
+    id: ci-link
+    attributes:
+      label: CI run link (if applicable)
+  - type: textarea
+    id: env
+    attributes:
+      label: Build environment
+      description: |
+        .NET SDK version, `dotnet --info` highlights, OS, glibc, locale.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: diff
+    attributes:
+      label: Binary diff (if you have one)
+      description: |
+        `objdump -d` or strings diff of the two DLLs, trimmed to a
+        representative window.
+      render: text

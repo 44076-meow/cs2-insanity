@@ -1,0 +1,50 @@
+title: "[build] <symptom>"
+labels: ["build", "ci"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use for build issues, CI failures, `sha256` drift between the
+        two C# build passes, vendored SDK patch (`scripts/ci-patch-sdks.sh`)
+        problems, or `.NET 8` / CounterStrikeSharp API mismatches. The CI
+        reference workflow is
+        [`.github/workflows/build.yml`](../blob/main/.github/workflows/build.yml).
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it fail?
+      options:
+        - "InsanityRevive — `dotnet build` fails locally"
+        - "InsanityRevive — sha256 differs between the two CI passes"
+        - "InsanityHider — `make` fails against vendored hl2sdk"
+        - "InsanityHider — vendored SDK patch (`scripts/ci-patch-sdks.sh`) doesn't apply"
+        - "Metamod load fails at runtime"
+        - "CounterStrikeSharp API.dll path / version mismatch"
+        - "Other"
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: OS + version, .NET SDK version, gcc/clang version.
+      placeholder: "Ubuntu 24.04 / .NET 8.0.x / gcc 13.x"
+    validations:
+      required: true
+  - type: input
+    id: srcds-root
+    attributes:
+      label: SRCDS_ROOT layout
+      description: Brief — what's at `$SRCDS_ROOT/game/csgo/addons/...`.
+  - type: textarea
+    id: output
+    attributes:
+      label: Build / CI output
+      description: Trim to the failing region. Wrap in a code fence.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried

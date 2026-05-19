@@ -1,0 +1,20 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question — general
+    url: https://github.com/Frad70/cs2-insanity/discussions/categories/q-a
+    about: |
+      Open-ended questions about the project belong in Q&A, not Issues.
+  - name: Schema drift watch — CS2 update broke something
+    url: https://github.com/Frad70/cs2-insanity/discussions/categories/schema-drift-watch
+    about: |
+      "After the latest CS2 update, X stopped working" — post in this
+      Discussions category. One thread per drift event.
+  - name: Detours & engine internals
+    url: https://github.com/Frad70/cs2-insanity/discussions/categories/detours-and-engine-internals
+    about: |
+      Discussion of UpdateLookAngles, ProcessUsercmds, hook ordering,
+      AimState design — not behavioral bugs.
+  - name: Ideas / feature pitches
+    url: https://github.com/Frad70/cs2-insanity/discussions/categories/ideas
+    about: |
+      Pitch a research direction or feature before filing a tracking issue.

@@ -139,6 +139,12 @@ SRCDS_ROOT=/path/to/cs2-dedicated-server ./scripts/deploy.sh --auto
   series). What was checked on disk vs. what required a connected human
   client to verify, and which schema fields turned out to be server-side-only
   on current CS2 builds.
+- [`docs/COMPAT.md`](docs/COMPAT.md) — plugin-tag × CS2-build compatibility
+  matrix, and the short list of anchors/fields most often moved by drift.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — where to post what (Issues vs.
+  the topic-specific Discussions categories), in-scope vs. out-of-scope.
+- [`SECURITY.md`](SECURITY.md) — how to privately report memory-safety
+  issues in the detour / mmap code.
 
 ## Project status
 

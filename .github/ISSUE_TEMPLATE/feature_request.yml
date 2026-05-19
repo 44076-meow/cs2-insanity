@@ -1,0 +1,44 @@
+name: Feature request
+description: |
+  Tracking issue for a feature. For early-stage pitches, open a thread in
+  **Ideas** first — issues are for items that have a rough implementation
+  plan already.
+title: "[feat] <short pitch>"
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: input
+    id: idea-link
+    attributes:
+      label: Originating Ideas thread (if any)
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What's missing today and who feels the gap.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Which side (C# / C++), which hook, what changes.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk
+      description: |
+        Schema-drift surface, detection surface, performance, backwards
+        compatibility with the shared pool version.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This proposal is consistent with the README's "dedicated server you own" intended use.
+          required: true

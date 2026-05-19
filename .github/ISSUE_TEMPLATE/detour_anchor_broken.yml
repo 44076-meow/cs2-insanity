@@ -1,0 +1,53 @@
+name: Detour anchor broken
+description: |
+  The inline detour into `libserver.so::CCSBot::UpdateLookAngles` (or the
+  `ProcessUsercmds` hook) fails to install, installs at the wrong address,
+  or crashes when invoked.
+title: "[detour] <anchor>: <symptom>"
+labels: ["detour", "engine-internals", "needs-triage"]
+body:
+  - type: input
+    id: plugin-tag
+    attributes:
+      label: Plugin tag / commit
+    validations:
+      required: true
+  - type: input
+    id: cs2-build
+    attributes:
+      label: CS2 dedicated server build
+    validations:
+      required: true
+  - type: dropdown
+    id: anchor
+    attributes:
+      label: Anchor / hook
+      options:
+        - "CCSBot::UpdateLookAngles inline detour"
+        - "ProcessUsercmds interception"
+        - "OnClientConnected post-hook (BOT-icon flip)"
+        - "Other (specify below)"
+    validations:
+      required: true
+  - type: textarea
+    id: failure
+    attributes:
+      label: Failure mode
+      description: |
+        Did install fail (which check?), did the trampoline crash, did the
+        engine bypass the detour after the first call, ...?
+    validations:
+      required: true
+  - type: textarea
+    id: addr
+    attributes:
+      label: Resolved address / signature
+      description: |
+        What address the plugin computed for the anchor, and any bytes you
+        verified at that address (objdump excerpt is ideal).
+      render: text
+  - type: textarea
+    id: stack
+    attributes:
+      label: Crash / backtrace (if applicable)
+      render: text

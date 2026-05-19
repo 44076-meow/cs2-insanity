@@ -1,0 +1,25 @@
+title: "<your question>"
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        General questions about the project. Before posting, please skim:
+        - the [README](../blob/main/README.md) — architecture, build, deploy
+        - [`notes/`](../tree/main/notes) — probe logs and design notes
+        - **Schema drift watch** if a CS2 update appears to have broken something
+        - **Build & reproducibility** if `dotnet build` / `make` / sha256 is the problem
+  - type: input
+    id: plugin-tag
+    attributes:
+      label: Plugin tag / commit (if relevant)
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried / read

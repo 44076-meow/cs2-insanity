@@ -1,0 +1,78 @@
+name: Bug report
+description: Reproducible defect in InsanityRevive or InsanityHider.
+title: "[bug] <short summary>"
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: if you suspect a CS2 update broke something, use
+        **Schema drift watch** in Discussions instead — drift reports are
+        not bugs in this codebase. If `dotnet build` / `make` fails, use
+        **Build & reproducibility**.
+  - type: input
+    id: plugin-tag
+    attributes:
+      label: Plugin tag / commit
+      placeholder: "v0.6.0.x-beta / abc1234"
+    validations:
+      required: true
+  - type: input
+    id: cs2-build
+    attributes:
+      label: CS2 dedicated server build
+      placeholder: "PatchVersion=..."
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      placeholder: "Ubuntu 24.04 / .NET 8.0.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: side
+    attributes:
+      label: Which side is affected?
+      options:
+        - "InsanityRevive (C# / CSSharp)"
+        - "InsanityHider (C++ / Metamod)"
+        - "Both / interaction between the two"
+        - "Unclear"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: |
+        Exact steps. Map, bot count, `server.cfg` lines, commands issued
+        via rcon, whether any human client was connected.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / telemetry
+      description: Server console + InsanityRevive JSONL, trimmed.
+      render: text
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope confirmation
+      options:
+        - label: I'm running this on a dedicated server **I own** (not Valve matchmaking / not a public ranked server).
+          required: true

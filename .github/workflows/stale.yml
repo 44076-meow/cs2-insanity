@@ -1,0 +1,40 @@
+name: stale
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-stale: 60
+          days-before-close: 14
+          stale-issue-message: |
+            This issue has been inactive for 60 days. It will be closed in
+            14 days if there's no further activity. If the CS2 build that
+            originally surfaced this is now obsolete, that's expected — open
+            a fresh report against a current build instead of reviving this
+            one. Comment to keep it open.
+          stale-pr-message: |
+            This PR has been inactive for 60 days. It will be closed in 14
+            days if there's no further activity. Comment or push to keep
+            it open.
+          close-issue-message: |
+            Closing for inactivity. Reopen if it's still relevant against a
+            current CS2 build / plugin tag.
+          close-pr-message: |
+            Closing for inactivity. Reopen with a rebase if you'd like to
+            continue.
+          exempt-issue-labels: "pinned,tracking,schema-drift,security"
+          exempt-pr-labels: "pinned,blocked"
+          stale-issue-label: "stale"
+          stale-pr-label: "stale"
+          operations-per-run: 100

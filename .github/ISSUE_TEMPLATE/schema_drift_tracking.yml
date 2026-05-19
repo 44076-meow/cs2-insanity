@@ -1,0 +1,41 @@
+name: Schema drift — tracking issue
+description: |
+  Maintainer-facing tracking issue for a known drift event. End users should
+  post in the **Schema drift watch** Discussions category first; an issue
+  is opened from a confirmed drift thread.
+title: "[drift] CS2 PatchVersion=<x>: <what moved>"
+labels: ["schema-drift", "tracking"]
+body:
+  - type: input
+    id: discussion-link
+    attributes:
+      label: Originating Discussions thread
+      placeholder: "https://github.com/Frad70/cs2-insanity/discussions/..."
+    validations:
+      required: true
+  - type: input
+    id: cs2-build
+    attributes:
+      label: CS2 build that introduced the drift
+    validations:
+      required: true
+  - type: input
+    id: last-known-good
+    attributes:
+      label: Last plugin tag known good
+    validations:
+      required: true
+  - type: textarea
+    id: surfaces
+    attributes:
+      label: Affected surfaces
+      description: |
+        Offsets, fields, detour anchors, hook ordering. One line per item:
+        `<surface> | <old> | <new> | <where verified>`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: fix-plan
+    attributes:
+      label: Fix plan / status

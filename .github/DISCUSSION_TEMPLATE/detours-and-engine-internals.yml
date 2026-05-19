@@ -1,0 +1,46 @@
+title: "[detour] <area>: <question or finding>"
+labels: ["engine-internals"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Discussion of the inline detour into
+        `libserver.so::CCSBot::UpdateLookAngles`, the `ProcessUsercmds`
+        interception, hook ordering relative to Metamod / CounterStrikeSharp,
+        and anything else touching the engine's bot AI per-tick path.
+        For "this broke after an update", use **Schema drift watch** instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "UpdateLookAngles detour (anchor / trampoline / calling convention)"
+        - "ProcessUsercmds interception (per-bot input shaping)"
+        - "OnClientConnected post-hook ordering (BOT icon flip)"
+        - "AimState pipeline (look pitch/yaw, target picker, error scaling)"
+        - "BotProfile / aim-skill curves"
+        - "Hook chain interaction with other MM:S plugins"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What you're trying to do or understand.
+    validations:
+      required: true
+  - type: textarea
+    id: findings
+    attributes:
+      label: Findings / hypothesis
+      description: |
+        Disassembly snippets, register state at the anchor, what the engine
+        appears to do vs. what the plugin does. Cite file:line where useful.
+      render: text
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro (if behavioral)
+      description: Commands, server.cfg lines, bot count, map, tick rate.
+      render: text

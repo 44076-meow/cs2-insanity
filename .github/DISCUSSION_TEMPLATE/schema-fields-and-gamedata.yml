@@ -1,0 +1,44 @@
+title: "[schema] <field or struct>"
+labels: ["schema"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Discussion of CS2 schema fields, struct offsets, and the gamedata
+        JSON consumed by InsanityRevive. For "this offset moved on the
+        latest CS2 update", use **Schema drift watch** instead — this
+        category is for the underlying *layout*, not breakage events.
+        Cross-reference probes in `notes/stage_3_4_probes.md` and
+        `notes/stage_4_probes.md`.
+  - type: input
+    id: field
+    attributes:
+      label: Field / struct
+      placeholder: "CCSPlayerPawn::m_bFakePlayer  /  CCSBot::UpdateLookAngles"
+    validations:
+      required: true
+  - type: input
+    id: cs2-build
+    attributes:
+      label: Observed on CS2 build
+      placeholder: "PatchVersion=..."
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: Observation
+      description: |
+        Offset, type, who writes it (engine vs. server vs. client), how to
+        probe it on a live server vs. on disk.
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source of the observation
+      options:
+        - "Disk probe (parsed binary)"
+        - "Live-engine probe (connected human client required)"
+        - "Disassembly only"
+        - "Documentation / prior art"

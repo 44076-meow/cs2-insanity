@@ -1,0 +1,46 @@
+title: "[deploy] <topic>"
+labels: ["deployment"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Deployment and dedicated-server operation: `server.cfg` (notably
+        `bot_quota 0`), `scripts/deploy.sh` baseline stanzas, mapchange
+        survival, JSONL telemetry rotation, plugin load order. **Not** for
+        Valve matchmaking — this project is dedicated-server-only (see
+        README disclaimer).
+  - type: input
+    id: cs2-build
+    attributes:
+      label: CS2 dedicated server build
+      placeholder: "PatchVersion=..."
+    validations:
+      required: true
+  - type: input
+    id: plugin-tag
+    attributes:
+      label: Plugin tag / commit
+    validations:
+      required: true
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - "First-time setup / SRCDS_ROOT layout"
+        - "`server.cfg` / `bot_quota` interaction"
+        - "`deploy.sh` baseline stanza / sha256 mismatch on deploy"
+        - "Plugin load order (Metamod vs. CounterStrikeSharp)"
+        - "Mapchange survival of the shared pool"
+        - "JSONL telemetry — rotation / sink"
+        - "Linux distro / glibc compatibility"
+        - "Windows host (partial / unsupported)"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+    validations:
+      required: true

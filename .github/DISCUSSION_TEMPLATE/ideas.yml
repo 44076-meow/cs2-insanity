@@ -1,0 +1,31 @@
+title: "[idea] <short pitch>"
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Pitch a feature or research direction. Ideas don't have to be
+        actionable today — exploratory directions for AimState, alternative
+        detour anchors, or new schema probes are welcome. Bear in mind the
+        project is intentionally scoped to **your own** dedicated server
+        (see README disclaimer); ideas that broaden the use surface
+        outside that won't be considered.
+  - type: textarea
+    id: pitch
+    attributes:
+      label: Pitch
+      description: One paragraph — what and why.
+    validations:
+      required: true
+  - type: textarea
+    id: sketch
+    attributes:
+      label: Implementation sketch
+      description: Optional. Which side (C# / C++), which hook, what changes.
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk / downside
+      description: |
+        Backwards compatibility, schema-drift exposure, detection surface,
+        performance cost.

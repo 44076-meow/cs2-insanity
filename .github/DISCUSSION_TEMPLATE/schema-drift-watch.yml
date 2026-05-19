@@ -1,0 +1,80 @@
+title: "[drift] <CS2 build / date>: <what broke>"
+labels: ["schema-drift", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this category to report when a CS2 update appears to have broken
+        something in the InsanityRevive / InsanityHider stack — schema
+        offsets, `m_bFakePlayer` patching, detour anchors, or userinfo
+        broadcast ordering. One report per drift event; keep follow-ups in
+        replies on the same thread.
+  - type: input
+    id: cs2-build
+    attributes:
+      label: CS2 dedicated server build
+      description: |
+        Output of `cat game/csgo/steam.inf` (or at least the `PatchVersion=`
+        / `ClientVersion=` lines), and approximate date you updated.
+      placeholder: "PatchVersion=1.40.x.x  (updated 2026-MM-DD)"
+    validations:
+      required: true
+  - type: input
+    id: plugin-tag
+    attributes:
+      label: Plugin tag / commit
+      description: Tag the deploy was built from (or `git rev-parse --short HEAD`).
+      placeholder: "v0.6.0.x-beta / abc1234"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did the breakage surface?
+      multiple: true
+      options:
+        - "Scoreboard still shows BOT icon"
+        - "Ping column empty / shows 0"
+        - "Bot name not overridden / reverts"
+        - "SteamID64 not synthetic / collides"
+        - "`UpdateLookAngles` detour fails to install"
+        - "`ProcessUsercmds` hook fails / crashes"
+        - "Server crash on bot connect / map change"
+        - "Shared mmap pool magic/version mismatch"
+        - "C# build fails / sha256 mismatch in CI"
+        - "C++ build fails against vendored hl2sdk"
+        - "Other (describe below)"
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: What you observed vs. what you expected.
+      placeholder: |
+        Expected: bots appear with synthetic SteamID64 + real ping.
+        Observed: bots still show "BOT" glyph after CS2 update on 2026-MM-DD.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / JSONL telemetry
+      description: |
+        Server console excerpt, `InsanityRevive` JSONL telemetry lines,
+        Metamod load output, or detour-install diagnostics. Wrap in code
+        fences.
+      render: text
+  - type: textarea
+    id: schema-evidence
+    attributes:
+      label: Schema / offset evidence (if any)
+      description: |
+        If you ran a probe (see `notes/stage_3_4_probes.md`), paste the
+        deltas. Field name, expected offset, observed offset.
+      render: text
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround (if any)
+      description: Patch, offset bump, gamedata edit, or revert that restored function.

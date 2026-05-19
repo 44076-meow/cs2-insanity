@@ -1,0 +1,38 @@
+title: "[bots] <topic>"
+labels: ["bot-behavior"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Discussion of bot persona (name pool, jittered ping, profile
+        selection), AimState tuning (Etap A→D — passthrough, error scaling,
+        feedback channel, target picker), and anything else that affects how
+        a managed fake-client *looks* and *plays* on the server.
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - "Persona / name pool (PersonaRegistry, canonicalization)"
+        - "Synthetic SteamID64 generation / range"
+        - "Jittered ping curves"
+        - "AimState — target picker (Etap D)"
+        - "AimState — error scaling vs. BotProfile.CurrentAimSkill"
+        - "AimState — feedback channel (pool v7)"
+        - "Pool version bumps (compat with C++ side)"
+        - "FakeClientManager lifecycle (Spawn / Despawn / mapchange)"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config / cvars
+      description: e.g. `bot_quota`, `bot_difficulty`, your `BotProfile` setup.
+      render: text
