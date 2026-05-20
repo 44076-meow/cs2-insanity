@@ -13,6 +13,7 @@ Each probe answers: **is the technique feasible in CSSharp 1.0.367 + CS2 schema,
 **Goal:** tint each managed bot's player-model red so the swarm visually reads as "those aren't friendlies anymore". Used in Stage 3 entry.
 
 **API findings:**
+
 - `m_clrRender` field present in CSSharp DLL string table (verified via `strings` grep).
 - `RenderMode` and `SetColor` also present.
 - **NO typed C# property** for `m_clrRender` in CSSharp 1.0.367 public XML — it's a schema field, accessed via dynamic `Schema.SetSchemaValue<Color>(handle, "CBaseModelEntity", "m_clrRender", color)`.
@@ -20,11 +21,13 @@ Each probe answers: **is the technique feasible in CSSharp 1.0.367 + CS2 schema,
 - May also need `RenderMode = kRenderTransColor` (or `kRenderNormal` — depends on CS2's rendering pipeline) for the color tint to actually apply rather than just be ignored.
 
 **Risk:** medium.
+
 - Untested in this repo — first dynamic Schema write of a `Color24` type.
 - Player models in CS2 have view-model and world-model. Red tint may apply to one but not the other.
 - Some CS2 builds have been reported to ignore `m_clrRender` on networked player entities (server-side write but client renders via different path).
 
 **Cleanest implementation candidate:**
+
 ```csharp
 var pawn = c.PlayerPawn?.Value;
 Schema.SetSchemaValue<Color>(pawn.Handle, "CBaseModelEntity", "m_clrRender",
@@ -45,6 +48,7 @@ Utilities.SetStateChanged(pawn, "CBaseModelEntity", "m_clrRender");
 **Goal:** rain molotov + HE grenades onto humans during Stage 3 without needing a player to throw them. Required for "molotov rain" effect.
 
 **API findings:**
+
 - Schema classes confirmed in CSSharp DLL:
   - `CBaseCSGrenadeProjectile` (parent)
   - `CMolotovProjectile`
@@ -56,6 +60,7 @@ Utilities.SetStateChanged(pawn, "CBaseModelEntity", "m_clrRender");
 - Entity factory: `UTIL_CreateEntityByName` symbol present in DLL. Standard CSSharp pattern is `Utilities.CreateEntityByName<T>("class_name")` returning a typed pointer, but the public XML does not document this method directly.
 - `CBaseEntity.DispatchSpawn(CEntityKeyValues)` IS documented — required to finalize entity after creation.
 - Real example pattern from many CSSharp plugins (no-thrower grenade spawn):
+
   ```csharp
   var molotov = Utilities.CreateEntityByName<CMolotovProjectile>("molotov_projectile");
   molotov.Teleport(spawnPos, QAngle.Zero, new Vector(0, 0, -300));  // initial down velocity
@@ -63,6 +68,7 @@ Utilities.SetStateChanged(pawn, "CBaseModelEntity", "m_clrRender");
   ```
 
 **Risk:** low-medium.
+
 - Spawning projectiles without an OWNER (Thrower) entity may cause server-side warnings; some CS2 builds null-deref when a projectile's OwnerEntity is null at detonation.
 - Workaround: assign one of our bots as nominal owner (`molotov.OwnerEntity = bot.Pawn` or via schema), so detonation logic has a non-null thrower.
 - `molotov_throw_detonate_time` cvar likely controls airburst time. Setting it to 9999 (per spec) means "never airburst" → only ground-contact detonation. Need to verify cvar exists in CS2.
@@ -76,11 +82,13 @@ Utilities.SetStateChanged(pawn, "CBaseModelEntity", "m_clrRender");
 **Goal:** Stage 4 suicide bots — every 3rd bot carries C4 as their primary weapon, beep + detonate when humans visible.
 
 **API findings:**
+
 - `GiveNamedItem` is the same method we already use successfully for `weapon_knife` (Stage 1) and `weapon_m249` / `weapon_negev` (Stage 2). Code-path proven.
 - `weapon_c4` is a string in CSSharp DLL — confirms the entity-name is recognized.
 - `CCSGameRulesProxy` present — bomb-carrier flag is set on the player pawn via `m_pInGameMoneyServices` or similar gamerules hook.
 
 **Risk:** medium.
+
 - C4 in CS2 is normally given automatically to one T-side player at round start. Giving it manually outside that flow may:
   - Conflict with engine's "is the bomb in play?" tracking → bomb icon on HUD goes weird
   - Show a "PLANT THE BOMB" objective marker for the carrying bot
@@ -89,6 +97,7 @@ Utilities.SetStateChanged(pawn, "CBaseModelEntity", "m_clrRender");
 - "Suicide vest" semantically means we trigger detonation on bot-vision-of-human, NOT on bomb-plant-then-explode. So we never call `c.PlantBomb()` — we directly spawn an `env_explosion` at bot's position when conditions met.
 
 **Cleanest implementation candidate:**
+
 ```csharp
 // Give C4 (carry slot)
 c.GiveNamedItem("weapon_c4");
@@ -99,6 +108,7 @@ _combatState[fc.Slot] = new BotCombatState {
 ```
 
 **Recommendation:** feasible but visual oddities likely. Need probe-on-friend-playtest:
+
 - Does C4 model show on bot's hand / hip without "PLANT" objective marker?
 - Does engine try to revoke C4 from CT-side bots?
 
@@ -111,6 +121,7 @@ If revoke happens, fallback: skip the visible C4 weapon, just trigger env_explos
 **Goal:** during Stage 3+4, prevent bot-vs-bot grenade damage and bot-vs-bot direct damage. Only humans should take damage from the apocalypse.
 
 **API findings — JACKPOT:**
+
 - CSSharp 1.0.367 has `Listeners.OnEntityTakeDamagePre` — modern, documented, public.
 - XML documentation:
   > Called when an entity is about to take damage.
@@ -120,6 +131,7 @@ If revoke happens, fallback: skip the visible C4 weapon, just trigger env_explos
 - This SUPERSEDES the deprecated `VirtualFunctions.CBaseEntity_TakeDamageOldFunc` we explored in v0.6.0.2 (`BotDamagePatch.cs` is built on the OLD path; should be ported to the new Listeners path).
 
 **Cleanest implementation candidate:**
+
 ```csharp
 RegisterListener<Listeners.OnEntityTakeDamagePre>((entity, info) => {
     // entity = victim (CEntityInstance)
@@ -148,6 +160,7 @@ RegisterListener<Listeners.OnEntityTakeDamagePre>((entity, info) => {
 ```
 
 **Risk:** low.
+
 - Modern API, documented, actively maintained.
 - HookResult.Handled is the canonical "prevent damage" return value.
 - No version-fragility concerns vs the deprecated VirtualFunctions path.

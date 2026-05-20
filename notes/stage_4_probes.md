@@ -8,6 +8,7 @@ Each probe section is filled in **after** a friend playtest where a connected
 human client visually confirms what the engine actually did.
 
 Status legend:
+
 - `🟢 GREEN`  — works as intended; Stage 4 may use this codepath as designed.
 - `🟡 YELLOW` — partial / cosmetic quirk; acceptable to ship, document behaviour.
 - `🔴 RED`    — broken or crashes; Stage 4 must take the documented fallback.
@@ -24,6 +25,7 @@ Status legend:
 defer live test).
 
 **Expected outcomes:**
+
 - 🟢 — model tints. Stage 4 entry tints all C4 carriers (or all bots) red.
 - 🟡 — partial tint (world model only / different shade). Acceptable —
   human in third-person sees the swarm marked.
@@ -44,6 +46,7 @@ controller. Same code path used for `weapon_knife` (Stage 1) and
 **Status:** ⚪ PENDING.
 
 **Expected outcomes:**
+
 - 🟢 — bot holds C4 model in hip / hand, no "PLANT THE BOMB" text on
   any client, no engine auto-revoke when bot is on CT side. Stage 4
   ships visible C4 + manual `env_explosion` detonation.
@@ -73,6 +76,7 @@ before Stage 4 wires it automatically.
 verified live — relies on probe 2's molotov / HE rain to trigger).
 
 **Test procedure (when user runs it):**
+
 1. `insanity_probe_hurtzero arm` (installs filter).
 2. Trigger bot-vs-bot damage: e.g. `mp_friendlyfire 1` then watch a
    knife rush. Bots should NOT damage each other.
@@ -83,6 +87,7 @@ verified live — relies on probe 2's molotov / HE rain to trigger).
 5. `insanity_probe_hurtzero disarm` (removes filter).
 
 **Expected outcomes:**
+
 - 🟢 — bots immune to bot-vs-bot direct hits AND inferno/molotov/HE.
   Humans take damage normally. Stage 4 entry calls `Install()`,
   `EndReveal` calls `Uninstall()`.
