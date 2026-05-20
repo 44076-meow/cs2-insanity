@@ -18,10 +18,7 @@ If you've found a memory-safety bug, a crash with attacker-influenced
 input on the server (e.g. via a crafted userinfo string or rcon flow),
 or a way to escape the synthetic SteamID64 range — **do not open a public
 issue or discussion**. Use GitHub's private reporting:
-
-  **Repository → Security → Report a vulnerability**
-
-(equivalently:
+**Repository → Security → Report a vulnerability** (equivalently:
 <https://github.com/Frad70/cs2-insanity/security/advisories/new>).
 
 Include:
