@@ -423,6 +423,19 @@ public sealed class RevealController
     // knife rush in default spawn positions (bots wander).
     private void EnterStage1()
     {
+        // Mirror EnterStage0's empty-fleet abort. Without this, a fleet
+        // drained during Stage 0's 5-sec wait (e.g. external bot_kick)
+        // proceeds into the full cvar-mutating + mp_restartgame path on
+        // an empty fleet, then grinds through 2-2.5 minutes of sterile
+        // Stage 1 → 2 → 3 before the natural timer chain expires —
+        // hitting humans with TWO useless mp_restartgame commands and
+        // "[INSANITY] STAGE 2 / HELL MODE" chat spam with no visible swarm.
+        if (_mgr.All.Count == 0) {
+            Log.Warn("EnterStage1: fleet empty — aborting reveal (Stage 0→1 raced bot_kick)");
+            CleanupReveal();
+            return;
+        }
+
         Stage = RevealStage.Stage1;
         _stageStartTick = Server.TickCount;
 
@@ -724,6 +737,15 @@ public sealed class RevealController
     private void EnterStage2()
     {
         if (_stage2Triggered) return;
+        // Mirror EnterStage0/1 empty-fleet abort — see EnterStage1 comment.
+        // Empty here means the swarm vanished mid-Stage-1; an extra
+        // mp_restartgame on humans plus the "STAGE 2" chat spam without
+        // any visible bots is the worst-case UX.
+        if (_mgr.All.Count == 0) {
+            Log.Warn("EnterStage2: fleet empty — aborting reveal");
+            CleanupReveal();
+            return;
+        }
         _stage2Triggered = true;
         Stage = RevealStage.Stage2;
         _stageStartTick = Server.TickCount;
@@ -786,6 +808,14 @@ public sealed class RevealController
     // version; placeholder enum value reserves the slot.
     private void EnterStage3()
     {
+        // Mirror EnterStage0-2 empty-fleet abort. HELL MODE on an empty
+        // fleet wastes 30s with no respawns to enforce.
+        if (_mgr.All.Count == 0) {
+            Log.Warn("EnterStage3: fleet empty — aborting reveal");
+            CleanupReveal();
+            return;
+        }
+
         Stage = RevealStage.Stage3;
         _stageStartTick = Server.TickCount;
         _lastRespawnTick.Clear();
@@ -849,6 +879,15 @@ public sealed class RevealController
 
     private void EnterStage4()
     {
+        // Mirror EnterStage0-3 empty-fleet abort. APOCALYPSE on an empty
+        // fleet promotes zero carriers and ticks for Stage4MaxDurationSec
+        // (60s) without doing anything.
+        if (_mgr.All.Count == 0) {
+            Log.Warn("EnterStage4: fleet empty — aborting reveal");
+            CleanupReveal();
+            return;
+        }
+
         Stage = RevealStage.Stage4;
         _stageStartTick = Server.TickCount;
         _stage4LastVisionTick = 0;
@@ -1334,6 +1373,17 @@ public sealed class RevealController
     public void OnTick()
     {
         if (Stage == RevealStage.Idle) return;
+
+        // Abort if the fleet drained mid-stage (e.g. external bot_kick
+        // after Stage 1 entered). The EnterStageN abort guards catch the
+        // entry-time empty case; this catches drain between stages or
+        // during a long-running stage. Cheaper than letting Stage N run
+        // its full timer (60-90s each) on no bots.
+        if (Stage != RevealStage.Stage0 && _mgr.All.Count == 0) {
+            Log.Info("Reveal aborted: fleet drained mid-stage");
+            EndReveal();
+            return;
+        }
 
         switch (Stage)
         {
