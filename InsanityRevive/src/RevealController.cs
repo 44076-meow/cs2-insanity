@@ -973,17 +973,21 @@ public sealed class RevealController
                 return;
             }
 
-            // Configure magnitude + radius via schema (these fields are
-            // documented as networked on CEnvExplosion). If SchemaSafety
-            // refuses, we just get a default-strength explosion which is
-            // still visible/audible.
+            // Position then spawn — DispatchSpawn finalizes networked-state
+            // from keyvalues, so any schema write BEFORE DispatchSpawn can
+            // get clobbered by the spawn-time defaulting pass (issue #21).
+            explosion.Teleport(pos, new QAngle(), new Vector());
+            explosion.DispatchSpawn();
+
+            // Configure magnitude + radius via schema AFTER DispatchSpawn so
+            // the values stick at the moment Explode reads them. If
+            // SchemaSafety refuses, we get a default-strength explosion
+            // which is still visible/audible.
             SchemaSafety.WriteAndMark<int>(explosion, explosion.Handle,
                 "CEnvExplosion", "m_iMagnitude", Stage4ExplosionMagnitude);
             SchemaSafety.WriteAndMark<float>(explosion, explosion.Handle,
                 "CEnvExplosion", "m_flRadius", Stage4ExplosionRadius);
 
-            explosion.Teleport(pos, new QAngle(), new Vector());
-            explosion.DispatchSpawn();
             explosion.AcceptInput("Explode");
         }
         catch (Exception ex) { Log.Error($"Stage 4 SpawnExplosionAt: {ex.Message}"); }
