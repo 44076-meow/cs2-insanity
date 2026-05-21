@@ -50,7 +50,13 @@ public sealed class InsanityRevivePlugin : BasePlugin
         });
         RegisterListener<Listeners.OnClientConnected>(slot => _manager?.OnClientConnected(slot));
         RegisterListener<Listeners.OnClientPutInServer>(slot => _manager?.OnClientPutInServer(slot));
-        RegisterListener<Listeners.OnClientDisconnect>(slot => _manager?.OnClientDisconnect(slot));
+        RegisterListener<Listeners.OnClientDisconnect>(slot => {
+            _manager?.OnClientDisconnect(slot);
+            // #18: purge per-slot reveal state so a human inheriting the
+            // freed slot isn't force-switched / force-respawned as if it
+            // were the old bot.
+            _manager?.Reveal.OnClientDisconnect(slot);
+        });
 
         // P/12 Reveal Finale (v0.6.0-beta): EventPlayerDeath dispatches to
         // RevealController for bot-kill counter (Stage 2 trigger threshold)
