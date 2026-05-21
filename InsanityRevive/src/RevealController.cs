@@ -235,6 +235,19 @@ public sealed class RevealController
             { "stage", "Stage0" }, { "humansAtStart", _humansAtStart },
             { "fleetSize", _mgr.All.Count } });
 
+        // Entry guard: no humans on server → nothing to terrorize. Abort
+        // before any chat-spam or stage-transition timers get scheduled.
+        // (The OnTick mid-reveal-abort path below covers the case where
+        // humans leave AFTER Stage 0 starts; this catches the case where
+        // none were here at trigger time.) Issue #7.
+        if (_humansAtStart == 0)
+        {
+            Log.Warn("Reveal Stage 0: no humans on server — aborting before any setup");
+            Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] reveal aborted — no humans on server");
+            CleanupReveal();
+            return;
+        }
+
         var bots = _mgr.All.ToList();
         if (bots.Count == 0)
         {
@@ -1107,8 +1120,13 @@ public sealed class RevealController
         // Now: "0 humans → EndReveal directly". Skipping HELL MODE makes
         // sense because there's no one to terrorize. HELL MODE Stage 3
         // is reached normally via Stage 2's natural timer transition.
-        if (Stage == RevealStage.Stage1 || Stage == RevealStage.Stage2
-            || Stage == RevealStage.Stage3 || Stage == RevealStage.Stage4)
+        //
+        // Stage 0 is included (issue #7): without it, all humans
+        // disconnecting during the 5-second pre-warning would still let
+        // Stage 1's swarm-deploy run on an empty server.
+        if (Stage == RevealStage.Stage0 || Stage == RevealStage.Stage1
+            || Stage == RevealStage.Stage2 || Stage == RevealStage.Stage3
+            || Stage == RevealStage.Stage4)
         {
             if (LivingHumansCount() == 0 && _humansAtStart > 0) {
                 _zeroHumansTickCount++;
