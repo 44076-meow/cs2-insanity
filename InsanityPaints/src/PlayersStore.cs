@@ -52,6 +52,45 @@ public sealed class WeaponLoadout
     /// <summary>One keychain defindex; 0 = none. CS2 only exposes a
     /// single keychain slot per weapon (unlike the four sticker slots).</summary>
     [JsonPropertyName("keychain")] public int   Keychain { get; set; }
+
+    /// <summary>Per-slot sticker placement (offset/scale/rotation/wear).
+    /// Optional — null or missing entries fall back to 0/0/0/1/0
+    /// (canonical centre, scale 1, rotation 0, wear 0) matching legacy
+    /// behaviour. Issue #60: bots derive these deterministically from
+    /// persona seed in BotLoadoutResolver so they aren't visibly uniform
+    /// next to humans.</summary>
+    [JsonPropertyName("sticker_placements")] public StickerPlacement[]? StickerPlacements { get; set; }
+
+    /// <summary>Keychain placement (offset_x/y/z + seed for swing). When
+    /// null, defaults to 0/0/0/0 — matches legacy behaviour. Bots get
+    /// a deterministic non-zero seed from persona name; humans default
+    /// to zero unless explicitly set via the API.</summary>
+    [JsonPropertyName("keychain_placement")] public KeychainPlacement? KeychainPlacement { get; set; }
+}
+
+/// <summary>Per-sticker cosmetic placement on a weapon. CS2 attribute
+/// names map 1:1: <c>sticker slot N offset x/y</c>, <c>wear</c>,
+/// <c>scale</c>, <c>rotation</c>. Real-player loadouts routinely
+/// non-zero these — bots that don't will look uniform on close
+/// inspection. See issue #60.</summary>
+public sealed class StickerPlacement
+{
+    [JsonPropertyName("offset_x")] public float OffsetX  { get; set; }
+    [JsonPropertyName("offset_y")] public float OffsetY  { get; set; }
+    [JsonPropertyName("wear")]     public float Wear     { get; set; }
+    [JsonPropertyName("scale")]    public float Scale    { get; set; } = 1f;
+    [JsonPropertyName("rotation")] public float Rotation { get; set; }
+}
+
+/// <summary>Per-keychain placement (single slot per weapon). Seed drives
+/// the dangle/swing animation phase server-side; non-zero seeds make
+/// bot loadouts visually distinguishable. See issue #60.</summary>
+public sealed class KeychainPlacement
+{
+    [JsonPropertyName("offset_x")] public float OffsetX { get; set; }
+    [JsonPropertyName("offset_y")] public float OffsetY { get; set; }
+    [JsonPropertyName("offset_z")] public float OffsetZ { get; set; }
+    [JsonPropertyName("seed")]     public int   Seed    { get; set; }
 }
 
 public sealed class GloveLoadout
