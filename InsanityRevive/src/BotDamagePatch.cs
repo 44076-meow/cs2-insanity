@@ -26,17 +26,40 @@ namespace InsanityRevive;
 ///      is reintroduced later, bots will not damage each other directly.
 ///      Self-damage (slot==slot) is allowed (legit env / fall damage).
 ///
+/// Stage 4 carrier damage reduction (issue #26): if <see cref="CarrierPredicate"/>
+/// returns true for the victim slot, surviving damage (i.e. damage that
+/// passed the two blocklists above) is scaled by
+/// <see cref="CarrierIncomingDamageMultiplier"/>. Keeps a C4 carrier alive
+/// long enough to detonate under AWP/HE counter-pressure.
+///
 /// Implementation notes:
 ///   - Was: `VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Hook(...)` which
 ///     CSSharp 1.0.367 marked obsolete.
 ///   - Now: `Listeners.OnEntityTakeDamagePre` — modern, documented, public.
-///     Returning `HookResult.Handled` prevents the entire damage pipeline.
+///     Returning `HookResult.Handled` prevents the entire damage pipeline;
+///     mutating <c>info.Damage</c> and returning <c>HookResult.Continue</c>
+///     lets the pipeline run with the modified value.
 ///
 /// Caller (RevealController) toggles via Install/Uninstall. NOT installed
 /// at plugin Load — Stage 4 entry installs, EndReveal uninstalls.
 /// </summary>
 public sealed class BotDamagePatch
 {
+    /// <summary>
+    /// Per-carrier incoming damage multiplier applied to damage that
+    /// survives the inflictor- and attacker-class blocklists. 0.5 chosen
+    /// from issue #26 acceptance: an unscoped AWP body shot (75) at 0.5x
+    /// = 37.5 leaves a 100 HP carrier alive for at least one more hit.
+    /// </summary>
+    public const float CarrierIncomingDamageMultiplier = 0.5f;
+
+    /// <summary>
+    /// Predicate identifying Stage 4 C4 carriers by slot. Set by
+    /// <c>RevealController.EnterStage4</c>, cleared in <c>CleanupReveal</c>.
+    /// Null at all other times — no scaling applied.
+    /// </summary>
+    public Func<int, bool>? CarrierPredicate { get; set; }
+
     private readonly BasePlugin _plugin;
     private readonly FakeClientManager _mgr;
     private bool _hooked;
@@ -118,6 +141,16 @@ public sealed class BotDamagePatch
                         return HookResult.Handled;
                     }
                 }
+            }
+
+            // Class 3 (issue #26): Stage 4 carrier damage reduction. Damage
+            // that survived the two blocklists above is from a human or an
+            // environmental hazard not on the inflictor blocklist. Scale
+            // it for carriers so AWP/HE counter-pressure can't OHKO before
+            // the detonation timer fires.
+            if (CarrierPredicate?.Invoke(victimSlot) == true)
+            {
+                info.Damage *= CarrierIncomingDamageMultiplier;
             }
         } catch (Exception ex) {
             Log.Debug($"OnEntityTakeDamage filter: {ex.Message}");

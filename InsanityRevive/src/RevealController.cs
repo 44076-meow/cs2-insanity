@@ -44,6 +44,8 @@ namespace InsanityRevive;
 /// Stage 1/2/3 reveal is already active. Design contract:
 ///   - <c>BotDamagePatch</c> stays on (carriers must remain killable so
 ///     humans can pre-emptively pop them before detonation).
+///     Per-carrier incoming damage is halved (issue #26) so AWP/HE
+///     counter-pressure can't OHKO a carrier before its timer fires.
 ///   - 1 in <see cref="Stage4CarrierFraction"/> bots is promoted to a C4
 ///     carrier on Stage 4 entry (skips dead/invalid slots — see #24).
 ///   - Each carrier's detonator arms when it sights a human within
@@ -948,6 +950,11 @@ public sealed class RevealController
         // alongside the humans. Idempotent — Install no-ops if already on.
         if (!_mgr.DamagePatch.IsInstalled) _mgr.DamagePatch.Install();
 
+        // Per-carrier 0.5x incoming damage (issue #26). Predicate reads
+        // _apocalypseCarriers live, so newly-promoted carriers below pick
+        // up the multiplier the moment they're added to the dict.
+        _mgr.DamagePatch.CarrierPredicate = slot => _apocalypseCarriers.ContainsKey(slot);
+
         // Promote ~1-of-N bots to C4 carriers (issue #24).
         //
         // Old impl used index-modulo (`i % Stage4CarrierFraction == 0`). If
@@ -1373,6 +1380,7 @@ public sealed class RevealController
             // entities self-clean after Explode input fires; weapon_c4
             // give-effects clear at the next mp_restartgame which the
             // RevealAutoRestart path issues a few lines below this method.
+            _mgr.DamagePatch.CarrierPredicate = null;
             if (_mgr.DamagePatch.IsInstalled)
             {
                 _mgr.DamagePatch.Uninstall();
