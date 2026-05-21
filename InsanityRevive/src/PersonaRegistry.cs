@@ -70,7 +70,17 @@ public sealed class PersonaRegistry
     {
         try {
             if (!File.Exists(_path)) {
-                Log.Info($"PersonaRegistry: no file at {_path}, starting empty");
+                // The DefaultPath moved from a hardcoded developer absolute
+                // path to a GameDirectory-relative path in 1d1d9a3 ("Prepare
+                // for public release"). Upgraders running off an older build
+                // will see this "starting empty" message even though their
+                // old personas.json may still exist at the previous
+                // location — surface that so the operator can `mv` it across
+                // instead of silently re-minting from scratch.
+                Log.Info($"PersonaRegistry: no file at {_path}, starting empty " +
+                         $"— if upgrading from a pre-1d1d9a3 build, copy your " +
+                         $"old personas.json (default was ~/cs2-server/insanity/" +
+                         $"personas.json) to this path; see README \"Upgrading\".");
                 return;
             }
             var json = File.ReadAllText(_path);
