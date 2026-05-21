@@ -62,39 +62,70 @@ namespace InsanityRevive;
 
 public static class SchemaSafety
 {
-    // Each entry is "ClassName.FieldName". The deny check uses both the
-    // exact class given by the caller AND the entity's parent class
-    // hierarchy in spirit — but Schema lookups are class-name-string-based
-    // anyway, so callers must pass the class they intended to write.
-    // We list the field under EVERY class name the engine accepts for it,
-    // so a caller passing "CCSPlayerPawnBase" and another passing
-    // "CCSPlayerPawn" both get caught.
+    // Deny-list is keyed by FIELD NAME ONLY — not "ClassName.FieldName".
+    //
+    // The earlier "ClassName.FieldName" encoding (issue #23) required us to
+    // enumerate every parent-class name the engine accepts for a given
+    // field. That enumeration was incomplete in practice — m_angEyeAngles
+    // was only listed under CCSPlayerPawnBase / CCSPlayerPawn but Schema
+    // lookups also accept CBaseEntity / CBasePlayerPawn; a future caller
+    // passing one of the missing aliases would slip past the deny gate
+    // and re-trigger the v0.6.0.6 / v0.6.0.9 crash class.
+    //
+    // Field-name-only is lossier (legitimately-different fields with the
+    // same name on different schema classes would be falsely refused) but
+    // safer: the crash is determined by the engine's networked-flag for
+    // the field, not by the class-name string the caller used. The
+    // field-name pool here is tiny and very specific (m_iTeamNum,
+    // m_angEyeAngles, m_bHasHelmet, m_ArmorValue) — collisions with
+    // unrelated entity types are unlikely, and a false-refusal logs
+    // clearly via Log.Error rather than silently corrupting state.
     private static readonly HashSet<string> _deny = new(StringComparer.Ordinal)
     {
         // m_iTeamNum — crashes via SetStateChanged. Use SwitchTeam instead.
-        "CCSPlayerController.m_iTeamNum",
-        "CCSPlayerPawnBase.m_iTeamNum",
-        "CCSPlayerPawn.m_iTeamNum",
-        "CBaseEntity.m_iTeamNum",
-
+        "m_iTeamNum",
         // m_angEyeAngles — crashes. Use v_angle (untested) or skip.
-        "CCSPlayerPawnBase.m_angEyeAngles",
-        "CCSPlayerPawn.m_angEyeAngles",
-
+        "m_angEyeAngles",
         // m_bHasHelmet — crashes (v0.6.0.9). Use GiveNamedItem("item_assaultsuit").
-        "CCSPlayerPawn.m_bHasHelmet",
-        "CCSPlayerPawnBase.m_bHasHelmet",
-
+        "m_bHasHelmet",
         // m_ArmorValue — defensively removed (v0.6.0.11). Use item give.
-        "CCSPlayerPawn.m_ArmorValue",
-        "CCSPlayerPawnBase.m_ArmorValue",
+        "m_ArmorValue",
     };
 
     /// <summary>
     /// True if writing this field crashes the server (per incident log).
     /// </summary>
+    /// <param name="schemaClass">
+    /// The class string the caller would pass to <c>Schema.SetSchemaValue</c>.
+    /// NOT consulted by the deny check itself (which is field-name-only —
+    /// see <c>_deny</c> rationale above) BUT load-bearing for diagnostics:
+    /// <see cref="Write{T}"/>, <see cref="MarkChanged(CBaseEntity, string, string)"/>,
+    /// and <see cref="WriteAndMark{T}"/> all interpolate
+    /// <c>{schemaClass}.{fieldName}</c> into their <c>Log.Error</c> refusal
+    /// lines so operators see the (class, field) pair the caller
+    /// intended. Do NOT drop this parameter in a "simplify unused args"
+    /// refactor — the breadcrumb is the only signal an operator gets
+    /// when a refusal fires in the wild.
+    /// </param>
+    /// <param name="fieldName">The schema field name. This is what _deny is keyed on.</param>
+    /// <remarks>
+    /// Sanity table — callers can sanity-check the gate's behaviour:
+    ///   IsDenied("CCSPlayerController",  "m_iTeamNum")       == true
+    ///   IsDenied("CCSPlayerPawn",        "m_iTeamNum")       == true
+    ///   IsDenied("CBaseEntity",          "m_iTeamNum")       == true
+    ///   IsDenied("CCSPlayerPawnBase",    "m_angEyeAngles")   == true
+    ///   IsDenied("CBasePlayerPawn",      "m_angEyeAngles")   == true  // alias previously missed
+    ///   IsDenied("CCSPlayerPawn",        "m_bHasHelmet")     == true
+    ///   IsDenied("CCSPlayerPawn",        "m_ArmorValue")     == true
+    ///   IsDenied("CCSPlayerPawn",        "m_flVelocityModifier") == false  // proven-safe
+    ///   IsDenied("CCSPlayerController",  "m_iPing")          == false  // proven-safe
+    ///   IsDenied("CBasePlayerController","m_iszPlayerName")  == false  // proven-safe
+    /// </remarks>
     public static bool IsDenied(string schemaClass, string fieldName)
-        => _deny.Contains($"{schemaClass}.{fieldName}");
+    {
+        _ = schemaClass;  // intentional — see <param name="schemaClass"/> above
+        return _deny.Contains(fieldName);
+    }
 
     /// <summary>
     /// Schema.SetSchemaValue&lt;T&gt; with deny-list gate. Returns true on
