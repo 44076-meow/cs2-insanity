@@ -81,7 +81,8 @@ public:
 private:
     InsanityHider::Pool m_Pool;
     bool m_bSelfDisabled = false;  // latched on pool header corruption
-    void* m_pHookedGameServer = nullptr;  // last instance hooked; null = unhooked
+    void* m_pHookedGameServer = nullptr;  // diagnostic-only — last instance ptr; never dereferenced (UAF, issue #10)
+    int   m_StartChangeLevelHookId = 0;   // SH_ADD_HOOK_MEMFUNC return; SH_REMOVE_HOOK_ID without touching stale instance
     void* m_pTier0 = nullptr;       // dlopen handle for libtier0.so
 };
 
