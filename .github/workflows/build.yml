@@ -33,6 +33,20 @@ on:
   pull_request:
     branches: [main, skins]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: |
+          Optional. Existing v* tag to build + publish a Release for
+          (backfill mode — see issue #36). When non-empty:
+            * All build jobs check out the tagged commit, not main.
+            * The package job runs and publishes a GitHub Release for
+              that tag, even though github.ref is refs/heads/main
+              (the normal tag-push trigger is bypassed because the
+              workflow file at the old tag predated the auto-release).
+          Leave blank for a regular dry-run of main.
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -51,6 +65,11 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Backfill mode: check out the supplied tag instead of main
+          # (see issue #36). Empty string falls through to the default
+          # ref of the dispatching event.
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v5
@@ -133,6 +152,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Install build toolchain
         run: |
@@ -198,12 +219,17 @@ jobs:
     name: package + release
     runs-on: ubuntu-latest
     needs: [build-cssharp, build-hider]
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Runs on:
+    #   * tag pushes (the normal trigger)
+    #   * workflow_dispatch with a non-empty `tag` input (backfill — #36)
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '')
     timeout-minutes: 5
     permissions:
       contents: write   # required by softprops/action-gh-release
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Download InsanityRevive artifact
         uses: actions/download-artifact@v8
@@ -218,9 +244,12 @@ jobs:
           path: out/hider
 
       - name: Stage server-relative tree
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           set -eu
-          tag=${GITHUB_REF##*/}
+          # Tag-push: github.ref is refs/tags/<tag>; backfill: read input.
+          tag="${INPUT_TAG:-${GITHUB_REF##*/}}"
           root=stage/cs2-insanity-${tag}
 
           # upload-artifact@v4 strips the LCD path prefix from uploads, so:
@@ -246,8 +275,10 @@ jobs:
 
       - name: Tarball + sha256
         id: bundle
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          tag=${GITHUB_REF##*/}
+          tag="${INPUT_TAG:-${GITHUB_REF##*/}}"
           tar -czf "cs2-insanity-${tag}.tar.gz" -C stage "cs2-insanity-${tag}"
           sha256sum "cs2-insanity-${tag}.tar.gz" | tee "cs2-insanity-${tag}.tar.gz.sha256"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -255,7 +286,7 @@ jobs:
       - name: Upload release bundle artifact
         uses: actions/upload-artifact@v7
         with:
-          name: cs2-insanity-${{ github.ref_name }}
+          name: cs2-insanity-${{ steps.bundle.outputs.tag }}
           path: |
             cs2-insanity-*.tar.gz
             cs2-insanity-*.tar.gz.sha256
@@ -267,7 +298,11 @@ jobs:
           # All current tags are -beta / -alpha. A hyphenated tag is
           # treated as pre-release; clean tags like v1.0.0 publish as
           # full releases.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          # In backfill mode (workflow_dispatch + tag input) `github.ref`
+          # is refs/heads/main, so explicitly pin tag_name from the
+          # bundle step's resolved value.
+          tag_name: ${{ steps.bundle.outputs.tag }}
+          prerelease: ${{ contains(steps.bundle.outputs.tag, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
