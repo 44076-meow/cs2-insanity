@@ -104,11 +104,24 @@ public sealed class InsanityRevivePlugin : BasePlugin
                 int winnerTeam = @event.Winner;  // 2=T, 3=CT, 0=draw
 
                 // Draw (winnerTeam=0, or other non-T/CT codes used for
-                // forfeit/abort): don't dispatch RoundEnd — otherwise every
-                // managed bot interprets `win = (0 == botTeam) == false`
-                // as a personal loss, inflating LossStreak/Tilt and falsely
-                // tripping the complacency-wakeup path on rounds nobody won.
-                if (winnerTeam != 2 && winnerTeam != 3) return HookResult.Continue;
+                // forfeit/abort): the RoundEnd-with-args path would mark
+                // every managed bot as a loser (`win = (0 == botTeam)
+                // == false`), inflating LossStreak/Tilt and falsely
+                // tripping the complacency-wakeup roll on rounds nobody
+                // won. Skip that path; instead fire a "Draw" so each bot
+                // still advances RoundsPlayed + RecomputeMood, leaving
+                // streaks and the skill-gap drift untouched. (Without
+                // bumping RoundsPlayed, the complacency machine sees an
+                // artificially small round count and stays in its
+                // "first-round excluded" baseline longer than the bots
+                // have actually played — Wave's #71 review catch.)
+                if (winnerTeam != 2 && winnerTeam != 3) {
+                    foreach (var fc in _manager.All) {
+                        try { fc.Profile.NotifyEvent("Draw"); }
+                        catch (Exception ex) { Log.Debug($"Draw notify slot={fc.Slot}: {ex.Message}"); }
+                    }
+                    return HookResult.Continue;
+                }
 
                 double ctSum = 0, tSum = 0;
                 int ctCount = 0, tCount = 0;
