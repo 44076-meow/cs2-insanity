@@ -1043,6 +1043,10 @@ public sealed class RevealController
 
             foreach (var fc in _mgr.All) RestoreNormalLoadout(fc);
             _combatState.Clear();
+            // HELL MODE cooldown table is reveal-scoped; clearing it here
+            // means the next reveal starts with a clean per-slot map and
+            // matches the wipe already done at EnterStage3 entry.
+            _lastRespawnTick.Clear();
 
             // Stage 4 cleanup: uninstall the damage filter (was installed
             // at Stage 4 entry to make the swarm immune to its own
@@ -1244,12 +1248,21 @@ public sealed class RevealController
                 _lastRespawnTick[victimSlot] = now;
                 // Schedule respawn ~0.5s after death (camera + ragdoll
                 // settles), then re-apply m249 + armor 1 tick later.
+                //
+                // Stage guard inside both callbacks: a bot dying in the
+                // final second of Stage 3 schedules a respawn at T+32,
+                // but EndReveal can fire at the 30s cap before that
+                // callback runs. Without the guard the leftover respawn
+                // forces the bot alive in Idle (post-CleanupReveal) and
+                // ApplyM249Rush hands it an m249 in a normal round.
                 Server.RunOnTick(now + 32, () => {
+                    if (Stage != RevealStage.Stage3) return;
                     try {
                         var c = Utilities.GetPlayerFromSlot(victimSlot);
                         if (c == null || !c.IsValid) return;
                         c.Respawn();
                         Server.RunOnTick(Server.TickCount + 4, () => {
+                            if (Stage != RevealStage.Stage3) return;
                             var fc = _mgr.FindBySlot(victimSlot);
                             if (fc != null) ApplyM249Rush(fc);
                         });
