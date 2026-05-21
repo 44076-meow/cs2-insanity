@@ -102,6 +102,16 @@ public sealed class InsanityRevivePlugin : BasePlugin
             try {
                 if (_manager == null) return HookResult.Continue;
                 int winnerTeam = @event.Winner;  // 2=T, 3=CT, 0=draw
+                // Skip complacency / streak / mood dispatch on a draw. A
+                // draw round means nobody won, but the existing code path
+                // computes `win = winnerTeam == botTeam` which evaluates
+                // to false for every team — every managed bot would be
+                // told its team lost, bumping LossStreak / nudging Mood
+                // toward Frustrated / arming wakeup-from-complacency on a
+                // round that nobody actually lost. "Drift toward 0" on a
+                // draw can ship as a separate event kind if needed; until
+                // then the safe behaviour is no-op. See issue #37.
+                if (winnerTeam != 2 && winnerTeam != 3) return HookResult.Continue;
 
                 double ctSum = 0, tSum = 0;
                 int ctCount = 0, tCount = 0;
