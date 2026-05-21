@@ -1061,6 +1061,24 @@ public sealed class RevealController
         _mgr.Telemetry.Write("reveal_cleanup", new Dictionary<string, object?> {
             { "totalKills", _botsKilledThisReveal } });
         _botsKilledThisReveal = 0;
+
+        // Reset per-reveal counters that previously carried over to the
+        // next Start() and could fire a false-positive EndReveal in the
+        // first tick of a re-triggered reveal. Specifically:
+        //   _zeroHumansTickCount: if the previous reveal ended on the
+        //     Stage 3 timer (not on zero-humans), this could still be
+        //     just below the 64-tick threshold; the next Stage 1 entry's
+        //     mp_restartgame respawn flicker would push it past the
+        //     threshold and EndReveal within the first second.
+        //   _humansAtStart / _stage2Triggered / _lastRespawnTick: EnterStage0
+        //     resets _humansAtStart and _stage2Triggered, and EnterStage3
+        //     clears _lastRespawnTick — but only on the happy path. Reset
+        //     here so an aborted reveal that never reached the resetting
+        //     stage still leaves us in a known-clean state.
+        _zeroHumansTickCount = 0;
+        _humansAtStart = 0;
+        _stage2Triggered = false;
+        _lastRespawnTick.Clear();
     }
 
     private void RestoreNormalLoadout(FakeClient fc)
