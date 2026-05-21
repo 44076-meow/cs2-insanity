@@ -190,6 +190,64 @@ public sealed class RevealController
 
     public RevealController(FakeClientManager mgr) => _mgr = mgr;
 
+    /// <summary>
+    /// Called from <see cref="FakeClientManager.OnMapStart"/> at the start
+    /// of every map transition. Resets reveal state to Idle without issuing
+    /// any <c>Server.ExecuteCommand</c> — cvars at this point reflect the
+    /// new map's cfg reload, not the pre-reveal captured values, so
+    /// restoring captured cvars here would clobber the new map's defaults.
+    ///
+    /// Without this, mid-reveal mapchange left <c>_botPrevTeams</c>,
+    /// <c>_botTargetTeams</c>, <c>_combatState</c>, <c>_lastRespawnTick</c>,
+    /// <c>_apocalypseCarriers</c> keyed on slot indices the engine may
+    /// rebind to real humans on the new map — causing TickStageN to
+    /// SwitchTeam / Respawn / strip+knife real players, and leaving
+    /// captured cvars dangling to clobber the new map's defaults on the
+    /// next CleanupReveal. Issue #5.
+    /// </summary>
+    public void OnMapStart()
+    {
+        if (Stage != RevealStage.Idle)
+        {
+            _mgr.Telemetry.Write("reveal_aborted_mapchange", new Dictionary<string, object?> {
+                { "stage", Stage.ToString() },
+                { "humansAtStart", _humansAtStart },
+                { "botsKilled", _botsKilledThisReveal },
+                { "carriers", _apocalypseCarriers.Count },
+            });
+            Log.Info($"Reveal: mapchange detected mid-{Stage} — wiping state, no cvar restore (engine reloaded cfg)");
+        }
+
+        Stage = RevealStage.Idle;
+        _stageStartTick = 0;
+        _botsKilledThisReveal = 0;
+        _humansAtStart = 0;
+        _stage2Triggered = false;
+        _zeroHumansTickCount = 0;
+
+        _botPrevTeams.Clear();
+        _botTargetTeams.Clear();
+        _combatState.Clear();
+        _lastRespawnTick.Clear();
+        _apocalypseCarriers.Clear();
+        _stage4LastVisionTick = 0;
+
+        // Drop captured cvar values without writing them back. The engine
+        // resets cvars to new-map gamemode_*.cfg defaults at the transition;
+        // attempting to restore the pre-mapchange values here would silently
+        // override the operator's intended map config.
+        _prevTeammatesAreEnemies = null;
+        _prevSolidTeammates = null;
+
+        // Uninstall Stage 4 damage filter if it was active. Fresh map starts
+        // with no carrier-immune state.
+        try {
+            if (_mgr.DamagePatch.IsInstalled) _mgr.DamagePatch.Uninstall();
+        } catch (Exception ex) {
+            Log.Debug($"OnMapStart DamagePatch uninstall: {ex.Message}");
+        }
+    }
+
     /// <summary>Admin entry. !reveal or insanity_reveal lands here.</summary>
     public void Start()
     {
