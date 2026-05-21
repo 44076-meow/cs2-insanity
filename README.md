@@ -133,6 +133,35 @@ binary to `$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/plugins/InsanityReviv
 SRCDS_ROOT=/path/to/cs2-dedicated-server ./scripts/deploy.sh --auto
 ```
 
+## Upgrading
+
+### PersonaRegistry path (≥ commit `1d1d9a3`)
+
+The `PersonaRegistry` JSON file was relocated from a developer-only
+absolute path to a `Server.GameDirectory`-relative path so the public
+build doesn't depend on a `/home/<user>/` layout.
+
+- **Before** (≤ `1d1d9a3^`): `~/cs2-server/insanity/personas.json`
+- **After**  (≥ `1d1d9a3`):  `$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/InsanityRevive/personas.json`
+
+If you ran an earlier build, the plugin will not pick up your old file
+on first load and will start re-minting personas from the fallback
+roster. The previous file remains stranded at its original location.
+
+**Migration** (one-shot, before first start on the new build):
+
+```bash
+# Adjust SRCDS_ROOT to your install.
+mkdir -p "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/InsanityRevive"
+mv ~/cs2-server/insanity/personas.json \
+   "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/InsanityRevive/personas.json"
+```
+
+If your old `personas.json` lived somewhere other than the historical
+default, substitute that path for the source. The plugin logs
+`PersonaRegistry: no file at <path>, starting empty …` when it can't
+find the file at the new location — that line is the prompt to migrate.
+
 ## Documentation
 
 - [`notes/`](notes/) — design notes for live-engine probes (Stage 3 / 4
