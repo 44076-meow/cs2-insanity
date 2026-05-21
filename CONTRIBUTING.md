@@ -8,7 +8,7 @@ the public surface". Read the [README](README.md) — especially the
 ## Where to post what
 
 | You have | Go to |
-|---|---|
+| --- | --- |
 | A question about how something works | Discussions → **Q&A** |
 | "CS2 update broke this" report | Discussions → **Schema drift watch** |
 | A new offset / schema observation | Discussions → **Schema fields & gamedata** |

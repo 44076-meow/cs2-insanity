@@ -13,9 +13,9 @@ record of what we've confirmed.
 
 ## Tags vs. CS2 builds
 
-| Plugin tag | First CS2 build probed | Last CS2 build still good | Status | Notes |
-|---|---|---|---|---|
-| *populate via release process* | *PatchVersion=…* | *PatchVersion=…* | *good / drift / broken* | *link drift threads here* |
+| Plugin tag                     | First CS2 build probed | Last CS2 build still good | Status                  | Notes                     |
+| ------------------------------ | ---------------------- | ------------------------- | ----------------------- | ------------------------- |
+| *populate via release process* | *PatchVersion=…*       | *PatchVersion=…*          | *good / drift / broken* | *link drift threads here* |
 
 When adding a row, link the originating drift Discussion thread (and any
 `[drift]` tracking issue) in the **Notes** cell. Don't squash multiple

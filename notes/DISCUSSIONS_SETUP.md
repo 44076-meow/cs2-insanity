@@ -20,7 +20,7 @@ auto-slug differs, click **Edit** on the category and override it). The
 group when creating.
 
 | # | Name | Emoji | Slug (must match) | Format | Purpose |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | 1 | Announcements | 📣 | `announcements` | Announcement | Releases, CS2-update advisories. Maintainer-post only. |
 | 2 | Q&A | ❓ | `q-a` | Question / Answer | General questions. Has accepted-answer flow. |
 | 3 | Ideas | 💡 | `ideas` | Open-ended | Feature / research pitches. |
