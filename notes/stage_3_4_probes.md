@@ -172,7 +172,7 @@ RegisterListener<Listeners.OnEntityTakeDamagePre>((entity, info) => {
 ## Summary table
 
 | Probe | Feasibility | Live test needed | Risk | Implementation est |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 1. m_clrRender red glow | YES (untested) | yes — visual | medium | 1-2h (write + tune RenderMode) |
 | 2. Grenade rain spawn | YES | minimal | low-medium | 30-60min |
 | 3. weapon_c4 give | YES (visual quirks) | yes — model + HUD | medium | 1-2h + fallback path |
