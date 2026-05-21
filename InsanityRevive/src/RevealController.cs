@@ -187,13 +187,15 @@ public sealed class RevealController
 
     private readonly Dictionary<int, ApocalypseCarrier> _apocalypseCarriers = new();
 
-    // Stage4 beep — soundevent names rename across CS2 patches. We resolve
-    // the working name ONCE at first beep, then cache it for the duration
-    // of the Stage 4 cycle. Reset at EnterStage4. If all candidates fail
-    // (including a generic-CS2 fallback), warn admin chat exactly once
-    // so the silent-detonation UX hole is visible. See issue #22.
+    // Stage4 beep — soundevent names rename across CS2 patches. Resolved
+    // ONCE at EnterStage4 against the first promoted-and-validity-passed
+    // carrier pawn (deterministic probe — avoids latching silent if the
+    // first per-tick caller happens to hit a transient bad pawn state).
+    // Cached for the duration of the Stage 4 cycle; reset at EnterStage4.
+    // If all candidates fail (including a generic-CS2 fallback), warn
+    // admin chat once so the silent-detonation UX hole is visible.
+    // See issue #22 + Wave review on PR #70.
     private string? _stage4WorkingBeep;
-    private bool    _stage4BeepResolved;
     private int _stage4LastVisionTick;
 
     public RevealController(FakeClientManager mgr) => _mgr = mgr;
@@ -742,12 +744,8 @@ public sealed class RevealController
         _stageStartTick = Server.TickCount;
         _stage4LastVisionTick = 0;
         _apocalypseCarriers.Clear();
-        // Fresh sound-resolution cycle — re-probe candidates on first beep.
+        // Fresh sound-resolution cycle — bootstrap probe runs below.
         _stage4WorkingBeep = null;
-        _stage4BeepResolved = false;
-
-        _mgr.Telemetry.Write("reveal_stage_enter", new Dictionary<string, object?> {
-            { "stage", "Stage4" }, { "name", "APOCALYPSE" } });
 
         Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] APOCALYPSE — C4 RAIN");
 
@@ -755,9 +753,10 @@ public sealed class RevealController
         // alongside the humans. Idempotent — Install no-ops if already on.
         if (!_mgr.DamagePatch.IsInstalled) _mgr.DamagePatch.Install();
 
-        // Promote 1-of-N bots to C4 carriers.
+        // Promote 1-of-N bots to C4 carriers + capture probe pawn.
         var bots = _mgr.All.ToList();
         int carrierCount = 0;
+        CCSPlayerPawn? probePawn = null;
         for (int i = 0; i < bots.Count; i++)
         {
             if (i % Stage4CarrierFraction != 0) continue;
@@ -777,9 +776,22 @@ public sealed class RevealController
                     LastBeepTick = 0, LastKnownHumanPos = null,
                 };
                 carrierCount++;
+                if (probePawn == null) probePawn = pawn;
             }
             catch (Exception ex) { Log.Error($"Stage4 give c4 slot={fc.Slot}: {ex.Message}"); }
         }
+
+        // Bootstrap-resolve beep against a known-good emitter (first
+        // promoted carrier post-validity). Done here so a transient bad
+        // pawn during the cycle can't latch us into silent state via the
+        // per-tick path. Wave review on PR #70.
+        if (probePawn != null) ResolveStage4Beep(probePawn);
+
+        _mgr.Telemetry.Write("reveal_stage_enter", new Dictionary<string, object?> {
+            { "stage", "Stage4" }, { "name", "APOCALYPSE" },
+            { "resolved_beep", _stage4WorkingBeep },
+            { "carrier_count", carrierCount },
+        });
 
         Log.Info($"Stage 4 APOCALYPSE: {carrierCount} carriers armed of {bots.Count} bots " +
                  $"(fraction 1/{Stage4CarrierFraction})");
@@ -905,34 +917,19 @@ public sealed class RevealController
     }
 
     /// <summary>
-    /// Resolve a working C4 beep soundevent once per Stage 4 cycle, then
-    /// reuse the cached name. If all candidates throw (CS2 renamed every
-    /// one of them), warn admin chat exactly once + log at Warn so the
-    /// silent-detonation UX hole isn't buried in Debug. Issue #22.
+    /// Bootstrap-probe candidate C4 beep soundevents at Stage 4 entry.
+    /// Walks a known-good emitter (first promoted-and-validity-passed
+    /// carrier pawn) through the candidate list; the first one that
+    /// doesn't throw becomes the cached name for the rest of the cycle.
+    /// If all candidates fail (incl. the generic-CS2 fallback), warn
+    /// admin chat once + Log.Warn so the silent-detonation UX hole isn't
+    /// buried in Debug. Issue #22 + Wave review on PR #70.
     /// </summary>
-    private void EmitStage4Beep(CCSPlayerPawn pawn, int slot)
+    private void ResolveStage4Beep(CCSPlayerPawn probe)
     {
-        // Fast path — cached name from earlier this cycle.
-        if (_stage4WorkingBeep != null)
-        {
-            try { pawn.EmitSound(_stage4WorkingBeep); }
-            catch (Exception ex)
-            {
-                // Cached event vanished mid-stage (extremely unlikely; soundevents
-                // are level-loaded). Bust the cache, next tick re-resolves.
-                Log.Debug($"Stage4 beep slot={slot}: cached '{_stage4WorkingBeep}' threw: {ex.Message}");
-                _stage4WorkingBeep = null;
-                _stage4BeepResolved = false;
-            }
-            return;
-        }
-
-        // Already tried-and-failed everything this cycle — skip silently.
-        if (_stage4BeepResolved) return;
-
-        // First-resolution attempt. Order: known CS2 C4 names, then a
-        // generic-CS2 fallback that's been stable across patches. If even
-        // the fallback throws, we surface the failure once and stay silent.
+        // Order: known CS2 C4 names, then a generic-CS2 fallback that's
+        // been stable across patches. If even the fallback throws, we
+        // surface the failure once and stay silent for the cycle.
         string[] candidates = {
             "Weapon_C4.Click", "weapons.c4.beep", "Weapons.C4.Beep",
             "BombPlant.Beep",  "Weapon_C4.PlantBeep",
@@ -944,32 +941,45 @@ public sealed class RevealController
         {
             try
             {
-                pawn.EmitSound(name);
+                probe.EmitSound(name);
                 _stage4WorkingBeep = name;
                 break;
             }
             catch { /* try next */ }
         }
-        _stage4BeepResolved = true;
 
         if (_stage4WorkingBeep == null)
         {
-            Log.Warn($"Stage4 beep: ALL {candidates.Length} candidate soundevents failed (incl. generic fallback). " +
+            Log.Warn($"Stage4 beep: ALL {candidates.Length} candidate soundevents failed on bootstrap probe (incl. generic fallback). " +
                      $"Stage 4 will run silent — update RevealController.cs candidates list.");
             Server.PrintToChatAll(
                 $" {ChatColors.DarkRed}[INSANITY] {ChatColors.Default}stage4: beep audio unavailable this round — escalating-tension cue muted");
         }
         else if (_stage4WorkingBeep == "Buttons.snd9")
         {
-            // We fell through to the fallback — C4 events are renamed.
-            // Log once at Warn so an admin can see why the tension cue
-            // sounds wrong; subsequent beeps go through the fast path.
             Log.Warn($"Stage4 beep: C4 soundevents not found; falling back to '{_stage4WorkingBeep}'. " +
                      $"Update RevealController.cs candidates list with the new CS2 name.");
         }
         else
         {
             Log.Info($"Stage4 beep: resolved to '{_stage4WorkingBeep}'");
+        }
+    }
+
+    private void EmitStage4Beep(CCSPlayerPawn pawn, int slot)
+    {
+        // Bootstrap probe ran at EnterStage4 — emit the cached name (or
+        // no-op silently if the probe found nothing). Cache-invalidation
+        // on per-tick throw is a defense against a soundevent vanishing
+        // mid-stage (extremely rare — soundevents are level-loaded); we
+        // null the cache so the rest of the cycle stays silent rather
+        // than re-probing on the per-tick path (race risk).
+        if (_stage4WorkingBeep == null) return;
+        try { pawn.EmitSound(_stage4WorkingBeep); }
+        catch (Exception ex)
+        {
+            Log.Debug($"Stage4 beep slot={slot}: cached '{_stage4WorkingBeep}' threw: {ex.Message}");
+            _stage4WorkingBeep = null;
         }
     }
 
