@@ -146,6 +146,27 @@ SRCDS_ROOT=/path/to/cs2-dedicated-server ./scripts/deploy.sh --auto
 - [`SECURITY.md`](SECURITY.md) — how to privately report memory-safety
   issues in the detour / mmap code.
 
+## Upgrade notes
+
+The repo doesn't carry a CHANGELOG yet, so cvar/option churn lives here.
+
+### `v0.6.0.x-beta` → `v0.7.x-beta`
+
+**`PersonaRegistry` default path moved.** The on-disk persona registry
+previously lived at a developer-side absolute path. After
+[`1d1d9a3`](https://github.com/Frad70/cs2-insanity/commit/1d1d9a3)
+(Prepare for public release) it resolves at runtime to:
+
+```text
+<gameinfo-root>/csgo/addons/counterstrikesharp/configs/plugins/InsanityRevive/personas.json
+```
+
+If you ran a pre-public build and want to keep persona ids / names
+across the upgrade, copy your old `personas.json` into the new path
+before first load — otherwise the plugin starts with an empty registry
+and re-mints. The plugin logs the new default path at load time, so
+the destination is visible in the console log on first start.
+
 ## Project status
 
 This repository is in **early alpha**. The README, public surface, tag stream,

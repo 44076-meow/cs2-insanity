@@ -70,7 +70,10 @@ public sealed class PersonaRegistry
     {
         try {
             if (!File.Exists(_path)) {
-                Log.Info($"PersonaRegistry: no file at {_path}, starting empty");
+                Log.Info($"PersonaRegistry: no file at {_path}, starting empty " +
+                         $"(upgrading from a pre-public-release build? your previous " +
+                         $"personas.json was at a developer-side path — copy it to " +
+                         $"{_path} to preserve persona ids / names across the upgrade)");
                 return;
             }
             var json = File.ReadAllText(_path);
