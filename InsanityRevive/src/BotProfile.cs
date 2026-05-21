@@ -301,6 +301,22 @@ public sealed class BotProfile
         if (Archetype == BotArchetype.Smurf && delta > 0)
             delta *= 1.3f;
 
+        // Issue #40 — ComplacencyStyle as active modifier on positive drift.
+        // Showoff gets cocky faster (ego loves the lead); Lazy accumulates
+        // slowly-but-persistently; Passive temperament resists zone-out.
+        // Negative drift is style-agnostic — losing pulls everyone back
+        // toward focus at the same rate.
+        if (delta > 0)
+        {
+            delta *= ComplacencyStyle switch
+            {
+                ComplacencyStyle.Showoff => 1.15f,
+                ComplacencyStyle.Lazy    => 1.05f,
+                ComplacencyStyle.Passive => 0.80f,
+                _                         => 1.0f,
+            };
+        }
+
         // Round outcome modifiers.
         if (args.Win && gap > 25)
             delta += 3f + rng.NextRange(0, 3);  // +3..5 — "и так норм"
@@ -312,6 +328,12 @@ public sealed class BotProfile
         if (delta < -50f) delta = -50f;  // wakeups can be larger
 
         Complacency = Math.Clamp(Complacency + delta, 0f, 100f);
+
+        // Issue #40 — Passive soft-ceiling. Defensive temperament won't
+        // allow full zone-out; floor positive complacency at 70. Wakeups
+        // can still pull below freely.
+        if (ComplacencyStyle == ComplacencyStyle.Passive && Complacency > 70f)
+            Complacency = 70f;
     }
 
     /// <summary>
@@ -327,6 +349,11 @@ public sealed class BotProfile
         if (TiltProneness > 70)   wakeupChance *= 0.7;  // тилтеры вместо собранности уходят в тильт
         if (GameSense > 60)       wakeupChance *= 1.3;  // опытные раньше замечают
         if (AggressionBase > 70)  wakeupChance *= 1.2;  // агрессивные собираются быстрее
+        // Issue #40 — ComplacencyStyle wakeup bias. Showoff ego-shocks back
+        // into focus when losing while ahead; Lazy stays apathetic and
+        // rarely wakes; Passive sits at baseline.
+        if (ComplacencyStyle == ComplacencyStyle.Showoff) wakeupChance *= 1.3;
+        else if (ComplacencyStyle == ComplacencyStyle.Lazy)    wakeupChance *= 0.5;
 
         if (rng.NextDouble() < wakeupChance)
         {
