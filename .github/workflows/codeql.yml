@@ -9,9 +9,9 @@ name: codeql
 
 on:
   push:
-    branches: [main]
+    branches: [main, skins]  # see issue #56 — `skins` is active dev branch
   pull_request:
-    branches: [main]
+    branches: [main, skins]
   schedule:
     - cron: "32 6 * * 1"   # Mondays 06:32 UTC
   workflow_dispatch:

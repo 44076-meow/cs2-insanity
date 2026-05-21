@@ -8,9 +8,9 @@ name: lint
 
 on:
   push:
-    branches: [main]
+    branches: [main, skins]  # see issue #56 — `skins` is active dev branch
   pull_request:
-    branches: [main]
+    branches: [main, skins]
   workflow_dispatch:
 
 permissions:
