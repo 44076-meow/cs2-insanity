@@ -249,6 +249,23 @@ public sealed class BotProfile
                 else                    RoundsAtHighComp = 0;
                 break;
 
+            // Draws / forfeits / aborts (winnerTeam ∉ {T,CT}). The round
+            // still happened — bump RoundsPlayed and recompute mood —
+            // but neither team "won", so streaks, Tilt, and the
+            // skill-gap complacency drift stay put. Without this kind,
+            // EventRoundEnd had to early-return on draws (per #37) and
+            // RoundsPlayed silently undercounted; that left the
+            // complacency machine in its "first-round excluded"
+            // baseline longer than the bots had actually been playing.
+            case "Draw":
+                RoundsPlayed++;
+                RecomputeMood();
+                if (Mood == Mood.Frustrated && Complacency > 15f)
+                    Complacency = 15f;
+                if (Complacency >= 50f) RoundsAtHighComp++;
+                else                    RoundsAtHighComp = 0;
+                break;
+
             // Legacy single-string events — kept for forward compat with
             // any caller that only knows the string-only NotifyEvent. The
             // streak/tilt update they do is also done inside RoundEnd
