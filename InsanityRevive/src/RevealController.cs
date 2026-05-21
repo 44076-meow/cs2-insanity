@@ -1049,17 +1049,26 @@ public sealed class RevealController
                 return;
             }
 
-            // Configure magnitude + radius via schema (these fields are
-            // documented as networked on CEnvExplosion). If SchemaSafety
-            // refuses, we just get a default-strength explosion which is
-            // still visible/audible.
+            // DispatchSpawn finalizes networked-state from keyvalues —
+            // anything we write to the entity BEFORE that pass can get
+            // clobbered by spawn-time defaulting (issue #21 for magnitude/
+            // radius). Origin is no different: a pre-spawn Teleport may
+            // be reset to the entity-dict default (world origin) by the
+            // same pass, in which case the explosion would fire at
+            // (0,0,0) regardless of `pos`. Spawn first with an empty
+            // entity, THEN teleport + configure schema, THEN trigger.
+            explosion.DispatchSpawn();
+            explosion.Teleport(pos, new QAngle(), new Vector());
+
+            // Configure magnitude + radius via schema AFTER DispatchSpawn so
+            // the values stick at the moment Explode reads them. If
+            // SchemaSafety refuses, we get a default-strength explosion
+            // which is still visible/audible.
             SchemaSafety.WriteAndMark<int>(explosion, explosion.Handle,
                 "CEnvExplosion", "m_iMagnitude", Stage4ExplosionMagnitude);
             SchemaSafety.WriteAndMark<float>(explosion, explosion.Handle,
                 "CEnvExplosion", "m_flRadius", Stage4ExplosionRadius);
 
-            explosion.Teleport(pos, new QAngle(), new Vector());
-            explosion.DispatchSpawn();
             explosion.AcceptInput("Explode");
         }
         catch (Exception ex) { Log.Error($"Stage 4 SpawnExplosionAt: {ex.Message}"); }
