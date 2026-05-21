@@ -111,11 +111,12 @@ common case of "swap one paint mid-round".
 | `css_insanity_paints_reload` | Hot-reload `settings.json`, all catalogs, `players.json`, `bots.json`. No restart needed. |
 
 Server console can always call it; in-game callers need the admin
-flag. Note: an `InsanityPaints` reload is roster-neutral — Paints
-doesn't own bot slots, so this command never produces ghost-slot
+flag. An `InsanityPaints` reload is roster-neutral — Paints doesn't
+own bot slots, so this command never produces ghost-slot
 accumulation. (Earlier docs warned about ghost slots from
-`css_plugins reload InsanityRevive`; that was fixed in `fd9a478f`
-by threading `hotReload` through `FakeClientManager.OnUnload`.)
+`css_plugins reload InsanityRevive`; that was fixed in
+`fd9a478fc0e4c4a5ece1573380eb292b1e956995` by threading `hotReload`
+through `FakeClientManager.OnUnload`.)
 
 ## Configuration files
 
@@ -325,7 +326,8 @@ the latest set, preserving image URLs and the `legacy_model` flag.
   it. Workaround: don't issue that command combo by hand;
   competitive-gamemode auto-warmup transitions don't trigger it
   (verified empirically across 98min of normal play).
-- **Hot-reload ghost-slot accumulation** — fixed in `fd9a478f`.
+- **Hot-reload ghost-slot accumulation** — fixed in
+  `fd9a478fc0e4c4a5ece1573380eb292b1e956995`.
   Previously, `css_plugins reload InsanityRevive` (or a full
   `css_plugins reload`) left the old roster's `kickid` commands
   queued while the new instance's `AdoptExistingBots()` re-claimed
