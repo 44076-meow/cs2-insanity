@@ -283,12 +283,19 @@ extern "C" void aim_hook_handler(void* ccsbot) {
     memcpy(&pawn, base + InsanityHider::CCSBOT_PLAYER_PTR_OFFSET, sizeof(pawn));
 
     // v7 feedback channel: capture BT's freshly-set m_lookPitch/Yaw BEFORE
-    // we clobber them with our override. C# AimController reads these from
-    // the pool next tick — guaranteed clean BT-target with no need for the
-    // sample-write phase pattern that introduced 110ms aim lag (verified
-    // 2026-05-09: kennyS skill=95 was bottom-of-the-fragboard with that
-    // pattern because the lag stalled reaction more than the 0.25° noise
-    // advantage helped).
+    // we clobber them with our override.
+    //
+    // **DIAGNOSTIC-ONLY post Etap D (commit 172f86e) — see issue #46.**
+    // C# AimController previously read these to know BT's intended target,
+    // but since Etap D it picks its own target via front-cone scan and
+    // never reads bt_target_* again. The write below is retained so the
+    // pool v7 layout stays intact and a future hybrid mode can re-light
+    // the channel without bumping to v8.
+    //
+    // Historic motivation (kept for context): solving the sample-write
+    // phase lag — verified 2026-05-09 that the 8-tick cache pattern
+    // stalled reaction enough that kennyS skill=95 ended up bottom of
+    // the fragboard. v7 fixed lag; Etap D fixed the skill-ceiling.
     float btPitch = *reinterpret_cast<float*>(base + InsanityHider::CCSBOT_LOOK_PITCH_OFFSET);
     float btYaw   = *reinterpret_cast<float*>(base + InsanityHider::CCSBOT_LOOK_YAW_OFFSET);
     pool->WriteBotTargetForBot(reinterpret_cast<uint64_t>(ccsbot), btPitch, btYaw);

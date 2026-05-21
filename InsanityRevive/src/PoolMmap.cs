@@ -36,7 +36,7 @@ public sealed class PoolMmap : IDisposable
     public const uint Version          = 7u;
     public const int  Slots            = 120;
     public const int  AimSlotCount     = 64;
-    public const int  AimSlotBytes     = 32;  // v7 widened from 24 for bt_target_* feedback channel
+    public const int  AimSlotBytes     = 32;  // v7 widened from 24 for bt_target_* feedback channel (diagnostic-only post Etap D — see issue #46)
     public const int  HeaderBytes      = 16;
     public const int  ActiveOffset     = 8;
     public const int  MapchangeOffset  = 12;

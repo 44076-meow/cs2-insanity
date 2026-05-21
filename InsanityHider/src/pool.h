@@ -45,6 +45,13 @@ public:
     // override). Linear scan to find matching entry; if no entry is
     // registered for this CCSBot, this is a no-op (fine — bots without
     // C# AimController control don't need the feedback channel).
+    //
+    // **DIAGNOSTIC-ONLY post Etap D (commit 172f86e) — see issue #46.**
+    // C# stopped reading bt_target_* once AimController switched to its
+    // own front-cone target picker. The writer is intentionally retained
+    // so a future hybrid mode can revive the channel without another
+    // pool version bump. Do NOT wire a new C# reader against these
+    // values without reading AimController.cs's Etap D header doc first.
     void WriteBotTargetForBot(uint64_t botPtr, float btPitch, float btYaw);
 
     // Writes (writable mmap, v3+).

@@ -181,6 +181,9 @@ bool Pool::LookupPerSlotAim(uint64_t botPtr, float& outPitch, float& outYaw) con
     return false;
 }
 
+// DIAGNOSTIC-ONLY post Etap D (commit 172f86e) — see issue #46. C# no
+// longer reads bt_target_* (AimController owns target selection). Kept
+// to preserve pool v7 layout for a possible future hybrid-mode revival.
 void Pool::WriteBotTargetForBot(uint64_t botPtr, float btPitch, float btYaw) {
     if (!m_pBase || botPtr == 0) return;
     auto* base = reinterpret_cast<uint8_t*>(m_pBase) + POOL_AIM_SLOTS_OFFSET;

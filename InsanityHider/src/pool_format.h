@@ -25,6 +25,20 @@
 // to know BT's intended target without stale-read pollution. Solves
 // the sample/write phase lag — C# can react every tick to fresh BT
 // data instead of caching a target across N ticks.
+//
+// **STATUS (Etap D, commit 172f86e — see issue #46):** the C# read of
+// bt_target_* is GONE. AimController now picks its own target (Layer 1
+// front-cone scan) and no longer needs BT's intended angle. The C++
+// writer is intentionally kept so a future hybrid mode ("BT picks, C#
+// refines") can re-light the channel without another pool version bump.
+// Until then, these fields are DIAGNOSTIC-ONLY: stale-but-fresh BT
+// look-angles, useful for in-game telemetry / aim-pipeline debugging,
+// NOT a feedback channel any consumer should be wiring back up.
+//
+// If you find yourself reading bt_target_* in new C# code: stop, read
+// the AimController.cs Etap D header doc, and confirm you actually want
+// hybrid mode before re-introducing the v7 feedback loop the picker
+// rewrite explicitly removed.
 //   [+0..+7]   uint64 bot_key          CCSBot* pointer (the AI struct,
 //                                       == `this` inside CCSBot::Update-
 //                                       LookAngles). NOT the CCSPlayer-
@@ -38,8 +52,8 @@
 //   [+8..+11]  uint32 enabled          0: no override, 1: use override
 //   [+12..+15] float  pitch            override pitch (C# writes)
 //   [+16..+19] float  yaw              override yaw (C# writes)
-//   [+20..+23] float  bt_target_pitch  fresh BT m_lookPitch (C++ writes)
-//   [+24..+27] float  bt_target_yaw    fresh BT m_lookYaw   (C++ writes)
+//   [+20..+23] float  bt_target_pitch  fresh BT m_lookPitch (C++ writes — DIAGNOSTIC-ONLY post Etap D, no C# reader, see issue #46)
+//   [+24..+27] float  bt_target_yaw    fresh BT m_lookYaw   (C++ writes — DIAGNOSTIC-ONLY post Etap D, no C# reader, see issue #46)
 //   [+28..+31] uint32 reserved         0 / alignment
 //
 // AIM OVERRIDE block (v5, 2026-05-08; per-slot extension v6, 2026-05-09):

@@ -28,7 +28,10 @@
 //
 // Pool architecture unchanged from v7: AimSlot[64] with bot_key +
 // override + bt_target_*. We still write override; bt_target_* is now
-// pure diagnostic (we no longer read it as our source of truth).
+// pure diagnostic (we no longer read it as our source of truth). The
+// C++ writer stays in place — bt_target_* is a stale-but-fresh BT
+// look-angle telemetry channel kept available for a possible future
+// hybrid mode ("BT picks, C# refines"). See issue #46.
 //
 // History (don't redo):
 //   - Identity passthrough through engine target = pure-degrade ceiling
