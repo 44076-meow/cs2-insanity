@@ -304,23 +304,33 @@ void InsanityHiderPlugin::OnLevelInit(char const* pMapName, char const*, char co
     // at plugin Load(). Engine may also re-create the game server instance
     // across mapchanges (verified empirically — hook registered at boot
     // didn't fire on the next user-issued changelevel). On every
-    // OnLevelInit, check the current pointer; if it changed, remove from
-    // the old instance and add to the new one.
+    // OnLevelInit, check the current pointer; if it changed, remove the
+    // old hook by stored SourceHook id (never dereferencing the stale
+    // instance pointer) and add a new hook to the current instance.
+    //
+    // **Issue #10 / UAF avoidance.** SH_REMOVE_HOOK_MEMFUNC on the
+    // stored m_pHookedGameServer was a use-after-free when the engine
+    // freed the prior INetworkGameServer instance across a changelevel:
+    // SourceHook needs to read the instance's vtable to resolve the
+    // member-fn-ptr, and the freed allocator slot held garbage. The
+    // hook id returned by SH_ADD_HOOK_MEMFUNC identifies the hook
+    // entry without touching the instance — removal is safe even
+    // after the underlying object is gone.
     {
         auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
         if (gameServer && gameServer != m_pHookedGameServer) {
-            if (m_pHookedGameServer) {
-                SH_REMOVE_HOOK_MEMFUNC(INetworkGameServer, StartChangeLevel,
-                                       (INetworkGameServer*)m_pHookedGameServer, this,
-                                       &InsanityHiderPlugin::Hook_StartChangeLevel_Pre, false);
-                META_CONPRINTF("[InsanityHider] StartChangeLevel hook removed from stale instance %p\n",
-                               m_pHookedGameServer);
+            if (m_StartChangeLevelHookId != 0) {
+                SH_REMOVE_HOOK_ID(m_StartChangeLevelHookId);
+                META_CONPRINTF("[InsanityHider] StartChangeLevel hook removed by id %d (prior instance %p — not dereferenced)\n",
+                               m_StartChangeLevelHookId, m_pHookedGameServer);
+                m_StartChangeLevelHookId = 0;
             }
-            SH_ADD_HOOK_MEMFUNC(INetworkGameServer, StartChangeLevel, gameServer,
-                                this, &InsanityHiderPlugin::Hook_StartChangeLevel_Pre, false /* PRE */);
+            m_StartChangeLevelHookId = SH_ADD_HOOK_MEMFUNC(
+                INetworkGameServer, StartChangeLevel, gameServer,
+                this, &InsanityHiderPlugin::Hook_StartChangeLevel_Pre, false /* PRE */);
             m_pHookedGameServer = (void*)gameServer;
-            META_CONPRINTF("[InsanityHider] StartChangeLevel hook registered on game server %p\n",
-                           (void*)gameServer);
+            META_CONPRINTF("[InsanityHider] StartChangeLevel hook registered on game server %p (id %d)\n",
+                           (void*)gameServer, m_StartChangeLevelHookId);
         } else if (!gameServer) {
             META_CONPRINTF("[InsanityHider] warning: GetIGameServer() null at OnLevelInit — retry next map\n");
         }
@@ -441,12 +451,13 @@ bool InsanityHiderPlugin::Unload(char* error, size_t maxlen) {
                    SH_MEMBER(this, &InsanityHiderPlugin::Hook_ClientPutInServer_Post), true);
     SH_REMOVE_HOOK(IVEngineServer, CreateFakeClient, engine,
                    SH_MEMBER(this, &InsanityHiderPlugin::Hook_CreateFakeClient_Pre), false);
-    if (m_pHookedGameServer) {
-        SH_REMOVE_HOOK_MEMFUNC(INetworkGameServer, StartChangeLevel,
-                               (INetworkGameServer*)m_pHookedGameServer, this,
-                               &InsanityHiderPlugin::Hook_StartChangeLevel_Pre, false);
-        m_pHookedGameServer = nullptr;
+    // Remove by id — engine may have torn down the INetworkGameServer
+    // instance between our last OnLevelInit and unload. Issue #10.
+    if (m_StartChangeLevelHookId != 0) {
+        SH_REMOVE_HOOK_ID(m_StartChangeLevelHookId);
+        m_StartChangeLevelHookId = 0;
     }
+    m_pHookedGameServer = nullptr;
     m_Pool.Close();
     if (m_pTier0) { dlclose(m_pTier0); m_pTier0 = nullptr; m_pUtlStringSet = nullptr; }
     return true;
