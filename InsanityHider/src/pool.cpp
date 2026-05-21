@@ -111,7 +111,16 @@ const char* Pool::GetName(int slot) const {
     if (!m_pBase) return nullptr;
     if (slot < 0 || slot >= (int)POOL_SLOTS) return nullptr;
     auto* p = reinterpret_cast<const char*>(m_pBase) + POOL_NAMES_OFFSET + slot * POOL_NAME_BYTES;
-    return p[0] ? p : nullptr;
+    if (!p[0]) return nullptr;
+    // Defensive NUL-termination check. The returned pointer is interior
+    // (mid-mmap) and CUtlString::Set will strlen() through it; if all 32
+    // bytes are non-NUL the engine reads past the slot into the next
+    // name, FIFO buffer, or unmapped page. WriteName always plants a NUL
+    // in bounds, so the invariant only breaks via pool-file tampering
+    // (mmap is shared) or a future writer that bypasses WriteName.
+    // memchr is O(32) — cheaper than the post-corruption debugging.
+    if (memchr(p, '\0', POOL_NAME_BYTES) == nullptr) return nullptr;
+    return p;
 }
 
 void Pool::WriteManaged(int slot, uint8_t val) {
