@@ -11,7 +11,7 @@ using CounterStrikeSharp.API.Modules.Utils;
 namespace InsanityRevive;
 
 /// <summary>
-/// Reveal Finale state machine (P/12, v0.6.0-beta).
+/// Reveal Finale state machine (P/12, v0.7.0-beta).
 ///
 /// Triggered by `!reveal` (admin chat) or `insanity_reveal` (rcon). NO
 /// confirmation prompt, re-runnable indefinitely. Re-trigger during an
@@ -28,9 +28,34 @@ namespace InsanityRevive;
 ///   Stage 2  escalation — m249/negev, infinite ammo, perfect aim,
 ///                          slowmo 0.3 for 2s on human death
 ///     ↓  trigger = 0 living humans
-///   Stage 3  cleanup — CleanupReveal + mp_restartgame 1 (if config'd)
+///   Stage 3  HELL MODE — instant bot respawn for <see cref="Stage3MaxDurationSec"/>s,
+///                         then CleanupReveal + mp_restartgame 1 (if config'd)
 ///     ↓
 ///   Idle
+///
+///   Stage 1/2/3 ──!reveal_apocalypse──→ Stage 4 (manual transition only)
+///                                         ↓ all carriers detonated OR Stage4MaxDurationSec
+///                                       EndReveal
+///
+/// Stage 4 (APOCALYPSE, v0.7.0-beta) is a manual-only branch: it cannot be
+/// entered automatically from the linear 0→3 progression — only via
+/// <c>!reveal_apocalypse</c> / <c>insanity_reveal_apocalypse</c> while a
+/// Stage 1/2/3 reveal is already active. Design contract:
+///   - <c>BotDamagePatch</c> stays on (carriers must remain killable so
+///     humans can pre-emptively pop them before detonation).
+///   - 1 in <see cref="Stage4CarrierFraction"/> bots is promoted to a C4
+///     carrier on Stage 4 entry (skips dead/invalid slots — see #24).
+///   - Each carrier's detonator arms when it sights a human within
+///     <see cref="Stage4VisionRangeHU"/> (~30m), then ticks down through
+///     <see cref="Stage4DetonateDelayMinTicks"/>..<see cref="Stage4DetonateDelayMaxTicks"/>
+///     with a beep cadence interpolating from
+///     <see cref="Stage4BeepIntervalEarlyTicks"/> to
+///     <see cref="Stage4BeepIntervalLateTicks"/>.
+///   - On detonation an <c>env_explosion</c> spawns at the carrier's
+///     position (magnitude <see cref="Stage4ExplosionMagnitude"/>, radius
+///     <see cref="Stage4ExplosionRadius"/>).
+///   - <see cref="Stage4MaxDurationSec"/> is a hard ceiling — EndReveal
+///     fires regardless of remaining carriers.
 ///
 /// Advisor-flagged risks (not yet probed empirically):
 /// 1. Sync impulse via <c>AbsVelocity.Z=300</c>: bot AI may write velocity
