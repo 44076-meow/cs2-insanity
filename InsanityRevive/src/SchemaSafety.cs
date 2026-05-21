@@ -94,10 +94,20 @@ public static class SchemaSafety
 
     /// <summary>
     /// True if writing this field crashes the server (per incident log).
-    /// The <paramref name="schemaClass"/> argument is retained for API
-    /// compatibility and error-log breadcrumbs but is not consulted —
-    /// the deny check is field-name-only (see _deny rationale above).
     /// </summary>
+    /// <param name="schemaClass">
+    /// The class string the caller would pass to <c>Schema.SetSchemaValue</c>.
+    /// NOT consulted by the deny check itself (which is field-name-only —
+    /// see <c>_deny</c> rationale above) BUT load-bearing for diagnostics:
+    /// <see cref="Write{T}"/>, <see cref="MarkChanged(CBaseEntity, string, string)"/>,
+    /// and <see cref="WriteAndMark{T}"/> all interpolate
+    /// <c>{schemaClass}.{fieldName}</c> into their <c>Log.Error</c> refusal
+    /// lines so operators see the (class, field) pair the caller
+    /// intended. Do NOT drop this parameter in a "simplify unused args"
+    /// refactor — the breadcrumb is the only signal an operator gets
+    /// when a refusal fires in the wild.
+    /// </param>
+    /// <param name="fieldName">The schema field name. This is what _deny is keyed on.</param>
     /// <remarks>
     /// Sanity table — callers can sanity-check the gate's behaviour:
     ///   IsDenied("CCSPlayerController",  "m_iTeamNum")       == true
@@ -112,7 +122,10 @@ public static class SchemaSafety
     ///   IsDenied("CBasePlayerController","m_iszPlayerName")  == false  // proven-safe
     /// </remarks>
     public static bool IsDenied(string schemaClass, string fieldName)
-        => _deny.Contains(fieldName);
+    {
+        _ = schemaClass;  // intentional — see <param name="schemaClass"/> above
+        return _deny.Contains(fieldName);
+    }
 
     /// <summary>
     /// Schema.SetSchemaValue&lt;T&gt; with deny-list gate. Returns true on
