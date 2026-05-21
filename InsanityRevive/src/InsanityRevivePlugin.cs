@@ -154,7 +154,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
                             Win                = win,
                             OwnTeamAvgSkill    = ownAvg,
                             EnemyTeamAvgSkill  = enemyAvg,
-                            OwnPerformance     = 0.5,  // placeholder; future: from MatchStats
+                            OwnPerformance     = EstimateOwnPerformance(c),
                         });
                     } catch (Exception ex) { Log.Debug($"RoundEnd notify slot={fc.Slot}: {ex.Message}"); }
                 }
@@ -237,6 +237,40 @@ public sealed class InsanityRevivePlugin : BasePlugin
         catch
         {
             return 50.0;
+        }
+    }
+
+    /// <summary>
+    /// Per-bot performance signal for the complacency mechanic, derived
+    /// from in-match K/D via <c>c.ActionTrackingServices.MatchStats</c>.
+    /// Returns 0..1, with 0.5 = neutral (no signal yet, or balanced K/D),
+    /// >0.5 = over-performing this match, &lt;0.5 = under-performing.
+    ///
+    /// Mapping: K/D ratio clamped to [0.25, 4.0], log2-symmetric around
+    /// 1.0 (so K/D 2.0 → 0.75 and K/D 0.5 → 0.25). Requires kills+deaths
+    /// ≥ 3 before trusting the sample; below that, returns 0.5 baseline.
+    /// MatchStats access is guarded — null ActionTrackingServices or any
+    /// throw on access falls through to 0.5. Replaces the previous
+    /// hardcoded 0.5 placeholder per #38.
+    /// </summary>
+    private static double EstimateOwnPerformance(CCSPlayerController c)
+    {
+        try
+        {
+            var ats = c.ActionTrackingServices;
+            if (ats == null) return 0.5;
+            int kills  = ats.MatchStats.Kills;
+            int deaths = ats.MatchStats.Deaths;
+            if (kills + deaths < 3) return 0.5;
+            double denom = deaths > 0 ? deaths : 1;
+            double kd = Math.Clamp(kills / denom, 0.25, 4.0);
+            // log2(0.25)=-2, log2(4)=+2 → /4 → [-0.5,+0.5] → +0.5 → [0,1].
+            double perf = 0.5 + Math.Log2(kd) / 4.0;
+            return Math.Clamp(perf, 0.0, 1.0);
+        }
+        catch
+        {
+            return 0.5;
         }
     }
 
