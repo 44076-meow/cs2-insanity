@@ -766,8 +766,46 @@ public sealed class RevealController
             // generation mismatch, but the stage check guards the case
             // where the same reveal cycle moved past Stage 2 naturally.)
             if (Stage != RevealStage.Stage2) return;
+            // Re-sample bot target teams BEFORE m249 hand-out. mp_restartgame
+            // can reshuffle players (autobalance, gamemode rules) — the
+            // _botTargetTeams snapshot from Stage 1 entry may now point bots
+            // onto the same team as the human, which EnforceTeamMembership
+            // would then enforce every tick. See issue #13.
+            RefreshTargetTeamsAfterRestart();
             foreach (var fc in _mgr.All) ApplyM249Rush(fc);
         });
+    }
+
+    /// <summary>
+    /// Recompute desired bot team after mp_restartgame settles. Looks at
+    /// the post-restart human team and rewrites every existing
+    /// <see cref="_botTargetTeams"/> entry to the opposite team. Does NOT
+    /// add new entries — Stage 1 already classified which bots are
+    /// in-cap (had a target) vs. cap-overflow (left on prev team); we
+    /// only correct the direction for those already inside the cap.
+    /// No SwitchTeam call — <see cref="EnforceTeamMembership"/> picks
+    /// up the new targets on the next tick. Idempotent when humans
+    /// stayed on the same team.
+    /// </summary>
+    private void RefreshTargetTeamsAfterRestart()
+    {
+        if (_botTargetTeams.Count == 0) return;
+        var humans = LivingHumanControllers();
+        if (humans.Count == 0) return;  // no humans to anchor against
+        int humanTeam = (int)humans[0].TeamNum;
+        if (humanTeam != 2 && humanTeam != 3) return;
+        int newBotTeam = humanTeam == 2 ? 3 : 2;
+        int changed = 0;
+        foreach (var slot in _botTargetTeams.Keys.ToList()) {
+            if (_botTargetTeams[slot] != newBotTeam) {
+                _botTargetTeams[slot] = newBotTeam;
+                changed++;
+            }
+        }
+        if (changed > 0)
+            Log.Info($"Stage 2 target-team refresh: humanTeam={humanTeam}, " +
+                     $"botTeam={newBotTeam}, {changed} entries rewritten " +
+                     $"(mp_restartgame shuffle)");
     }
 
     private void ApplyM249Rush(FakeClient fc)
