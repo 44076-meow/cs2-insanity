@@ -189,12 +189,23 @@ public sealed class InsanityRevivePlugin : BasePlugin
     /// Coarse "observed" skill estimate for a real human (0..100 scale).
     /// Used by the complacency mechanic — bots shouldn't peek the
     /// real player's hidden SkillRating, they only see what's
-    /// observable in-match. v1: derive from in-match K/D once at least
-    /// 3 deaths have happened; otherwise return 50 baseline.
+    /// observable in-match.
     ///
-    /// MatchStats fields (from `c.ActionTrackingServices.MatchStats` or
-    /// similar) may not always be populated; if they aren't, fall
-    /// through to the baseline. Don't crash on access.
+    /// v1 implementation: linear map of <c>c.Score</c> (cumulative match
+    /// score, including objective bonuses for plant / defuse / hostage /
+    /// MVP) → 50..80. Score ≤ 0 returns the 50 baseline; every 1 point
+    /// of score adds 0.5 skill, capped at +30 so the estimate stays
+    /// away from extremes and the complacency math remains robust to
+    /// score noise.
+    ///
+    /// Note: <c>c.Score</c> is only loosely correlated with K/D — it is
+    /// biased toward objective-heavy roles. A future revision may switch
+    /// to true K/D derived from <c>c.ActionTrackingServices.MatchStats</c>
+    /// once that path is hardened (see the related work on wiring
+    /// <c>OwnPerformance</c> from MatchStats). Any such change must keep
+    /// the "observable, not hidden SkillRating" rule.
+    ///
+    /// Crash-safe: wrapped in try/catch; on any access failure returns 50.
     /// </summary>
     private static double EstimateHumanSkill(CCSPlayerController c)
     {
