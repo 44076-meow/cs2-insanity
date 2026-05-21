@@ -82,13 +82,17 @@ public sealed class BotDamagePatch
             // Class 1: environmental projectile rain (Stage 4 APOCALYPSE).
             // Inflictor is the projectile/inferno entity itself, not the
             // thrower. This catches molotov_projectile mid-air, the inferno
-            // entity once it ignites, and HE before/at detonation.
+            // entity once it ignites, HE before/at detonation, and the
+            // env_explosion entity spawned by Stage 4 carrier detonation
+            // (RevealController.SpawnExplosionAt — without this, every bot
+            // inside Stage4ExplosionRadius=400 HU dies on every carrier blow).
             var inflictorEnt = info.Inflictor.Value;
             if (inflictorEnt != null) {
                 var inflictorClass = inflictorEnt.DesignerName;
                 if (inflictorClass == "inferno"
                     || inflictorClass == "molotov_projectile"
-                    || inflictorClass == "hegrenade_projectile") {
+                    || inflictorClass == "hegrenade_projectile"
+                    || inflictorClass == "env_explosion") {
                     return HookResult.Handled;
                 }
             }
