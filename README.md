@@ -146,6 +146,28 @@ SRCDS_ROOT=/path/to/cs2-dedicated-server ./scripts/deploy.sh --auto
 - [`SECURITY.md`](SECURITY.md) — how to privately report memory-safety
   issues in the detour / mmap code.
 
+## Upgrade notes
+
+The repo doesn't carry a CHANGELOG yet, so cvar/option churn lives here.
+If a previous `insanity.cfg` (or an `autoexec.cfg` that `exec`s into it)
+still references one of the names below, you'll see `unknown command`
+warnings on the console at map start; remove the line — behaviour is
+unchanged.
+
+### `v0.6.0.x-beta` → `v0.7.x-beta`
+
+Removed cvars (no replacement — the real-SteamID provider mode was
+dropped at public release):
+
+- `insanity_steamid_mode` — was `synthetic` / `real`. The synthetic
+  provider is now the only one; the cvar has no effect.
+- `insanity_real_steamids_file` — pointed at the real-SteamID JSONL
+  consumed by the `real` mode. Unused now; safe to delete the file too.
+
+If you previously kept either line in a server-side config, drop it.
+`SyntheticSteamIdProvider` is selected unconditionally
+(`InsanityRevive/src/SteamIdProvider.cs`).
+
 ## Project status
 
 This repository is in **early alpha**. The README, public surface, tag stream,
