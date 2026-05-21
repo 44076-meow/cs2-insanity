@@ -203,21 +203,61 @@ public sealed class ApplyService
     public void OnPlayerSpawn(CCSPlayerController player)
     {
         if (!ShouldApply(player, out _)) return;
+        ScheduleStaggeredApply(player);
+    }
+
+    /// <summary>Round-restart entry point. The `mp_restartgame 1`
+    /// (and `mp_warmup_start` + `mp_warmup_pausetimer` + `mp_restartgame 1`)
+    /// cascade respawns everyone via the engine's full-game-reset
+    /// path, which bypasses EventPlayerSpawn — so the per-slot
+    /// stagger we install in <see cref="OnPlayerSpawn"/> never gets a
+    /// chance to fire. <c>EventRoundPrestart</c> still fires on the
+    /// cascade path, so we re-trigger the same staggered apply
+    /// here. On normal new-rounds both events fire; the per-slot
+    /// debounce in <see cref="ScheduleStaggeredApply"/> coalesces
+    /// them so we don't double-schedule.</summary>
+    public void OnRoundPrestart()
+    {
+        foreach (var player in Utilities.GetPlayers())
+        {
+            if (!ShouldApply(player, out _)) continue;
+            ScheduleStaggeredApply(player);
+        }
+    }
+
+    // Per-slot debounce window. Big enough to cover the slot 0 → slot
+    // 63 stagger span (max ~1s at 64-tick) so EventRoundPrestart +
+    // EventPlayerSpawn for the same round can't queue two parallel
+    // bursts; small enough that the next round's apply is never
+    // blocked.
+    private const int ApplyDebounceTicks = 64;
+    private readonly Dictionary<int, int> _lastApplyScheduledTick = new();
+
+    private void ScheduleStaggeredApply(CCSPlayerController player)
+    {
+        int slot = player.Slot;
+        int now = Server.TickCount;
+        if (_lastApplyScheduledTick.TryGetValue(slot, out var prev)
+            && now - prev < ApplyDebounceTicks)
+            return;
+        _lastApplyScheduledTick[slot] = now;
+
         // Stagger apply across ticks by slot index. Mass-respawn
-        // (OnPreResetRound / boot fleet-spawn) fires EventPlayerSpawn
-        // for all 8 bots in the same engine tick — the prior
-        // Server.NextFrame queued every ApplyAll into the *same* next
-        // frame, producing 8 simultaneous SetModel + SetBodygroup +
-        // attribute-list writes through animation system. That race
-        // window is what crashes libanimationsystem.so (mode-B). By
-        // spreading 1 tick per slot we keep at most one player's apply
-        // per animation tick — race window closes.
+        // (OnPreResetRound / boot fleet-spawn / mp_restartgame
+        // cascade) lines up every bot's spawn write on one engine
+        // tick — the prior Server.NextFrame queued every ApplyAll
+        // into the *same* next frame, producing 8 simultaneous
+        // SetModel + SetBodygroup + attribute-list writes through
+        // animation system. That race window is what crashes
+        // libanimationsystem.so (mode-B). By spreading 1 tick per
+        // slot we keep at most one player's apply per animation tick
+        // — race window closes.
         //
         // Cost: skins for slot N visibly pop in N*15.6ms after spawn.
         // With 64 slot indexes max = ~1s worst case. For typical
         // 4-12 active players the spread is 60-180ms which is
         // imperceptible vs the spawn flicker itself.
-        float delay = player.Slot * Server.TickInterval;
+        float delay = slot * Server.TickInterval;
         _plugin.AddTimer(delay, () =>
         {
             try { ApplyAll(player); }

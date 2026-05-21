@@ -31,6 +31,7 @@ public sealed class InsanityPaintsPlugin : BasePlugin
         catch (Exception ex) { Log.Error($"Load: {ex.Message}"); throw; }
 
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventPlayerDeath>(OnPlayerDeath);
         RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
         RegisterListener<Listeners.OnClientDisconnect>(slot => {
@@ -151,6 +152,20 @@ public sealed class InsanityPaintsPlugin : BasePlugin
             _apply.OnPlayerSpawn(player);
         }
         catch (Exception ex) { Log.Warn($"OnPlayerSpawn: {ex.Message}"); }
+        return HookResult.Continue;
+    }
+
+    /// <summary>Catch the round-restart paths that respawn outside the
+    /// EventPlayerSpawn flow (notably the
+    /// `mp_warmup_start` + `mp_warmup_pausetimer` + `mp_restartgame 1`
+    /// cascade — see issue #58 / commit a0e1e4c8). The per-slot
+    /// debounce inside <see cref="ApplyService.ScheduleStaggeredApply"/>
+    /// keeps this from double-applying on normal new-rounds where
+    /// EventPlayerSpawn also fires.</summary>
+    private HookResult OnRoundPrestart(EventRoundPrestart @event, GameEventInfo info)
+    {
+        try { _apply?.OnRoundPrestart(); }
+        catch (Exception ex) { Log.Warn($"OnRoundPrestart: {ex.Message}"); }
         return HookResult.Continue;
     }
 
