@@ -524,6 +524,13 @@ main { flex: 1; overflow: hidden; }
 
 /* -- Bots tab -------------------------------------------------------- */
 .muted { color: var(--fg-mute); }
+
+/* Music-kit picker caveat — narrow paragraph just under the picker. */
+.music-kit-caveat {
+  font-size: 0.85em;
+  line-height: 1.35;
+  margin: 6px 0 0 0;
+}
 .bots-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
