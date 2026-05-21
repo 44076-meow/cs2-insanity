@@ -2,7 +2,9 @@ name: markdownlint
 
 on:
   push:
-    branches: [main]
+    # `skins` is the active integration branch for InsanityPaints work
+    # — paints docs land there first. See issue #56.
+    branches: [main, skins]
     paths:
       - "**/*.md"
       - ".github/workflows/markdownlint.yml"

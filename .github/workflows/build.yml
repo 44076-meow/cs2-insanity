@@ -24,10 +24,14 @@ name: build
 
 on:
   push:
-    branches: [main]
+    # `skins` is the active integration branch for InsanityPaints work
+    # (~22k LOC of C# + catalogs); without it on the trigger list the
+    # branch was racking up source-touching commits with zero CI coverage.
+    # See issue #56.
+    branches: [main, skins]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, skins]
   workflow_dispatch:
 
 permissions:
