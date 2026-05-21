@@ -28,8 +28,9 @@ namespace InsanityRevive;
 ///   Stage 2  escalation — m249/negev, infinite ammo, perfect aim,
 ///                          slowmo 0.3 for 2s on human death
 ///     ↓  trigger = 0 living humans
-///   Stage 3  HELL MODE — instant bot respawn for <see cref="Stage3MaxDurationSec"/>s,
-///                         then CleanupReveal + mp_restartgame 1 (if config'd)
+///   Stage 3  HELL MODE — instant bot respawn for <see cref="Stage3MaxDurationSec"/>s
+///     ↓  TickStage3 timer expiry
+///   <see cref="EndReveal"/>  (wraps <see cref="CleanupReveal"/> + optional mp_restartgame 1)
 ///     ↓
 ///   Idle
 ///
