@@ -174,7 +174,24 @@ public sealed class InsanityRevivePlugin : BasePlugin
         // individual bots ourselves and how admins surgically drop one.
         AddCommandListener("bot_kick", (caller, info) => {
             if (_manager == null) return HookResult.Continue;
-            if (info.ArgCount > 1) return HookResult.Continue; // targeted, leave alone
+            // CS2 engine accepts bot_kick in four mass-or-targeted forms:
+            //   bot_kick           — mass (no args)
+            //   bot_kick all       — mass (all bots)
+            //   bot_kick t | ct    — mass (one team)
+            //   bot_kick <name>    — targeted (one specific bot)
+            // The plugin path (DespawnAll + pin FleetSize=0) only fits the
+            // mass forms. The previous `ArgCount > 1` guard fell through on
+            // `bot_kick all/t/ct`, letting the engine drain the fleet
+            // natively — and FleetManager.Reconcile then spawned a fresh
+            // fleet ~1 sec later because no FleetSize-override pin was
+            // set. Recognise the mass tokens explicitly. Issue #6.
+            bool isMassKick = info.ArgCount == 1;
+            if (!isMassKick && info.ArgCount == 2)
+            {
+                var arg = info.GetArg(1).Trim().ToLowerInvariant();
+                if (arg is "all" or "t" or "ct") isMassKick = true;
+            }
+            if (!isMassKick) return HookResult.Continue; // targeted by name — let engine kick one bot
             try {
                 var n = _manager.DespawnAll("vanilla_bot_kick");
                 _manager.Config.SetFleetSizeOverride(0);
