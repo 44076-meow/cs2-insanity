@@ -566,6 +566,15 @@ public sealed class FakeClientManager : IDisposable
     public void OnMapStart()
     {
         try {
+            // (0) Notify reveal controller BEFORE any fleet churn. Its
+            //     slot-keyed dictionaries (_botPrevTeams, _botTargetTeams,
+            //     _combatState, _lastRespawnTick, _apocalypseCarriers) would
+            //     otherwise survive the snapshot/wipe below and apply
+            //     stage-specific overrides to whatever the engine rebinds
+            //     those slots to on the new map (potentially real humans).
+            //     See RevealController.OnMapStart docs. Issue #5.
+            Reveal.OnMapStart();
+
             // (1) Snapshot active bots BEFORE clearing. _byId entries were
             //     preserved through the synthetic disconnect cascade because
             //     OnClientDisconnect skipped Despawn while pool.IsMapchangeInProgress.
