@@ -62,8 +62,13 @@ public sealed class PoolMmap : IDisposable
     public const int  AimSlotEnabledOff  = 8;
     public const int  AimSlotPitchOff    = 12;  // C# writes
     public const int  AimSlotYawOff      = 16;  // C# writes
-    public const int  AimSlotBtPitchOff  = 20;  // C++ writes BT's m_lookPitch
-    public const int  AimSlotBtYawOff    = 24;  // C++ writes BT's m_lookYaw
+    // bt_target_pitch / bt_target_yaw: C++ writes BT's fresh m_lookPitch /
+    // m_lookYaw each tick. DIAGNOSTIC-ONLY since Etap D (commit 172f86e) —
+    // AimController moved to picking its own target and no longer reads
+    // these. Layout slot kept so a future hybrid mode can re-attach without
+    // a pool version bump; see pool_format.h for the regression risk.
+    public const int  AimSlotBtPitchOff  = 20;  // float — C++ writes, diagnostic
+    public const int  AimSlotBtYawOff    = 24;  // float — C++ writes, diagnostic
 
     public const int  Total              = AimSlotsOffset + (AimSlotCount * AimSlotBytes);  // 6052
 
@@ -222,10 +227,17 @@ public sealed class PoolMmap : IDisposable
     }
 
     /// <summary>v7 — read BT's m_lookPitch/Yaw that the C++ handler captured
-    /// last tick (before our override stomped on it). This is the clean
-    /// engine-target value AimController feeds noise on top of, no need to
-    /// disarm and read m_lookPitch directly. Returns NaN if slot has no
-    /// bot_key registered (no entry to read from).</summary>
+    /// last tick (before our override stomped on it).
+    ///
+    /// DIAGNOSTIC-ONLY since Etap D (commit 172f86e): AimController moved
+    /// to its own target picker and has no live callers of this method.
+    /// Kept as a seam for hybrid-mode reattachment or live diagnostics.
+    /// Wiring a consumer in the per-tick aim path will recreate the
+    /// feedback-loop bug Etap C+ specifically fixed (commit d9f5f54);
+    /// audit before reading.
+    ///
+    /// Returns NaN if slot has no bot_key registered (no entry to read
+    /// from).</summary>
     public (float btPitch, float btYaw) ReadBotTarget(int slot)
     {
         if (_va == null) return (float.NaN, float.NaN);
