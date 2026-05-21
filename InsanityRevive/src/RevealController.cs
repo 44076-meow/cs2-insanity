@@ -11,7 +11,7 @@ using CounterStrikeSharp.API.Modules.Utils;
 namespace InsanityRevive;
 
 /// <summary>
-/// Reveal Finale state machine (P/12, v0.6.0-beta).
+/// Reveal Finale state machine (P/12, v0.7.0-beta).
 ///
 /// Triggered by `!reveal` (admin chat) or `insanity_reveal` (rcon). NO
 /// confirmation prompt, re-runnable indefinitely. Re-trigger during an
@@ -31,6 +31,25 @@ namespace InsanityRevive;
 ///   Stage 3  cleanup — CleanupReveal + mp_restartgame 1 (if config'd)
 ///     ↓
 ///   Idle
+///
+/// Manual-only branch (Stage 4, added in v0.7.0-beta via
+/// <see cref="StartApocalypse"/> / `!reveal_apocalypse`):
+///   Stage 1/2/3 ──!reveal_apocalypse──→ Stage 4
+///                                         ↓ all carriers detonated
+///                                         ↓   OR Stage4MaxDurationSec
+///                                       EndReveal
+///
+/// Stage 4 design contract:
+///   - Idempotent install of <c>BotDamagePatch</c> so explosions only
+///     hurt humans (bots get inflictor-class immunity).
+///   - Every Nth bot (<see cref="Stage4CarrierFraction"/>) is promoted
+///     to a C4 carrier; `weapon_c4` given via <c>GiveNamedItem</c>.
+///   - Each carrier arms when a human enters
+///     <see cref="Stage4VisionRangeHU"/> (~30m); beep cadence ramps
+///     from Early → Late ticks until a random detonate timer fires.
+///   - On detonate, an <c>env_explosion</c> is spawned at the carrier's
+///     position (magnitude/radius per Stage4Explosion* constants) and
+///     the carrier commits suicide for the visible-death cue.
 ///
 /// Advisor-flagged risks (not yet probed empirically):
 /// 1. Sync impulse via <c>AbsVelocity.Z=300</c>: bot AI may write velocity
