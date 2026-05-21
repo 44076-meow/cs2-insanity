@@ -547,32 +547,47 @@ public sealed class ApplyService
     private void ApplyStickersAndKeychain(CBasePlayerWeapon weapon, WeaponLoadout loadout)
     {
         var handle = weapon.AttributeManager.Item.NetworkedDynamicAttributes.Handle;
+        var placements = loadout.StickerPlacements;
         if (loadout.Stickers != null)
         {
             for (int slot = 0; slot < loadout.Stickers.Length && slot < 4; slot++)
             {
                 int stickerDef = loadout.Stickers[slot];
                 if (stickerDef <= 0) continue;
+                // Issue #60 — placement from loadout when present, canonical
+                // defaults (0/0/0/1/0) otherwise. Bots get non-uniform values
+                // via BotLoadoutResolver; human loadouts default to canonical
+                // until the web UI exposes per-slot fields.
+                var p = placements != null && slot < placements.Length
+                    ? placements[slot] ?? DefaultStickerPlacement
+                    : DefaultStickerPlacement;
                 // ViewAsFloat reinterprets the int's bits as a float — the
                 // engine stores attribute values as float-only, but the
                 // semantic for "sticker id" is uint, so we smuggle it.
                 SetAttribute(handle, $"sticker slot {slot} id",       ViewAsFloat((uint)stickerDef));
-                SetAttribute(handle, $"sticker slot {slot} offset x", 0f);
-                SetAttribute(handle, $"sticker slot {slot} offset y", 0f);
-                SetAttribute(handle, $"sticker slot {slot} wear",     0f);
-                SetAttribute(handle, $"sticker slot {slot} scale",    1f);
-                SetAttribute(handle, $"sticker slot {slot} rotation", 0f);
+                SetAttribute(handle, $"sticker slot {slot} offset x", p.OffsetX);
+                SetAttribute(handle, $"sticker slot {slot} offset y", p.OffsetY);
+                SetAttribute(handle, $"sticker slot {slot} wear",     p.Wear);
+                SetAttribute(handle, $"sticker slot {slot} scale",    p.Scale);
+                SetAttribute(handle, $"sticker slot {slot} rotation", p.Rotation);
             }
         }
         if (loadout.Keychain > 0)
         {
+            var kp = loadout.KeychainPlacement ?? DefaultKeychainPlacement;
             SetAttribute(handle, "keychain slot 0 id",       ViewAsFloat((uint)loadout.Keychain));
-            SetAttribute(handle, "keychain slot 0 offset x", 0f);
-            SetAttribute(handle, "keychain slot 0 offset y", 0f);
-            SetAttribute(handle, "keychain slot 0 offset z", 0f);
-            SetAttribute(handle, "keychain slot 0 seed",     ViewAsFloat(0));
+            SetAttribute(handle, "keychain slot 0 offset x", kp.OffsetX);
+            SetAttribute(handle, "keychain slot 0 offset y", kp.OffsetY);
+            SetAttribute(handle, "keychain slot 0 offset z", kp.OffsetZ);
+            SetAttribute(handle, "keychain slot 0 seed",     ViewAsFloat((uint)kp.Seed));
         }
     }
+
+    // Cached canonical defaults — Scale=1, everything else 0. Matches the
+    // legacy hardcoded behaviour for loadouts without explicit placement,
+    // and avoids per-call allocation in the hot apply path.
+    private static readonly StickerPlacement   DefaultStickerPlacement   = new() { Scale = 1f };
+    private static readonly KeychainPlacement  DefaultKeychainPlacement  = new();
 
     private static float ViewAsFloat(uint v) => BitConverter.UInt32BitsToSingle(v);
 

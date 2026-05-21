@@ -77,14 +77,55 @@ public sealed class BotLoadoutResolver
                 if (pick < _db.Keychains.Count) keychain = _db.Keychains[pick].Defindex;
             }
 
+            // Issue #60 — per-loadout sticker/keychain placement, derived
+            // from the same persona seed so a bot's weapon presentation is
+            // internally coherent and stable across reconnects. Ranges
+            // chosen to mirror real-player loadouts:
+            //   sticker offset ±2 units (centred-ish but visibly drifted)
+            //   sticker scale  0.85..1.15 (subtle resize)
+            //   sticker rotation ±10° (~±0.1745 rad, canted)
+            //   sticker wear   0..0.30 (light-to-medium scuff)
+            //   keychain xy   ±0.6, z ±1.5 (lateral nudge, vertical drift)
+            // Empty sticker slots keep a default StickerPlacement — the
+            // apply path skips slots whose sticker id is 0 anyway.
+            var stickerPlacements = new StickerPlacement[4];
+            for (int s = 0; s < 4; s++)
+            {
+                if (stickers[s] == 0) { stickerPlacements[s] = new StickerPlacement(); continue; }
+                stickerPlacements[s] = new StickerPlacement
+                {
+                    OffsetX  = SignedUnit($"skox{defindex}.{s}:{name}") * 2f,
+                    OffsetY  = SignedUnit($"skoy{defindex}.{s}:{name}") * 2f,
+                    Wear     = UnitFloat($"skw{defindex}.{s}:{name}") * 0.30f,
+                    Scale    = 1f + SignedUnit($"sks{defindex}.{s}:{name}") * 0.15f,
+                    Rotation = SignedUnit($"skr{defindex}.{s}:{name}") * 0.1745f,
+                };
+            }
+            KeychainPlacement? keychainPlacement = null;
+            if (keychain > 0)
+            {
+                keychainPlacement = new KeychainPlacement
+                {
+                    OffsetX = SignedUnit($"kcx{defindex}:{name}") * 0.6f,
+                    OffsetY = SignedUnit($"kcy{defindex}:{name}") * 0.6f,
+                    OffsetZ = SignedUnit($"kcz{defindex}:{name}") * 1.5f,
+                    // Seed drives swing phase; distinct seeds = distinct
+                    // dangle behaviour. int range covers the engine's uint
+                    // attribute once ApplyService reinterprets via ViewAsFloat.
+                    Seed    = StableIndex($"kcs{defindex}:{name}", int.MaxValue),
+                };
+            }
+
             loadout.Weapons[defindex] = new WeaponLoadout
             {
-                Paint    = chosen.Paint,
-                Seed     = 0,
-                Wear     = 0.01f,
-                StatTrak = -1,
-                Stickers = stickers,
-                Keychain = keychain,
+                Paint              = chosen.Paint,
+                Seed               = 0,
+                Wear               = 0.01f,
+                StatTrak           = -1,
+                Stickers           = stickers,
+                Keychain           = keychain,
+                StickerPlacements  = stickerPlacements,
+                KeychainPlacement  = keychainPlacement,
             };
         }
 
@@ -143,6 +184,22 @@ public sealed class BotLoadoutResolver
         ulong u = BitConverter.ToUInt64(hash, 0);
         return (int)(u % (ulong)size);
     }
+
+    // Deterministic float in [0, 1) derived from the same SHA-256 stable
+    // hash. Used by issue-#60 placement to produce smooth-but-stable
+    // per-bot cosmetic offsets.
+    private static float UnitFloat(string seed)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(seed));
+        // Take 24 bits → mantissa-grade resolution, avoids the +1 ulp
+        // tie at the upper edge.
+        uint u = ((uint)hash[0] << 16) | ((uint)hash[1] << 8) | hash[2];
+        return u / 16_777_216f;  // 2^24
+    }
+
+    /// <summary>Deterministic float in (-1, 1). Same uniformity as UnitFloat,
+    /// just shifted to a signed range.</summary>
+    private static float SignedUnit(string seed) => UnitFloat(seed) * 2f - 1f;
 }
 
 public sealed class ResolvedBotLoadout
