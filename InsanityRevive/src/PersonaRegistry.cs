@@ -78,7 +78,10 @@ public sealed class PersonaRegistry
             _byId.Clear();
             int dropped = 0;
             foreach (var p in arr) {
-                if (p.Id <= 0 || string.IsNullOrEmpty(p.Name)) continue;
+                // Whitespace-only Name slips past IsNullOrEmpty but produces
+                // the same downstream symptoms (empty pool write, persona
+                // adopted with display name "   "). Drop those too. See #15.
+                if (p.Id <= 0 || string.IsNullOrWhiteSpace(p.Name)) continue;
                 // v0.5.2-beta migration: drop "playerN" sentinel garbage
                 // from v0.5.1-beta's empty-FIFO fallback. Real personas
                 // (LastSeenAt populated, name from roster, etc.) survive.
@@ -178,7 +181,15 @@ public sealed class PersonaRegistry
         // (2) Mint from fallback roster.
         var existingNorm = new HashSet<string>(
             _byId.Values.Select(p => Norm(p.Name)), StringComparer.Ordinal);
+        // Filter empty / whitespace-only roster entries before name matching.
+        // Without this, a caller passing { "" } or { "   " } could select an
+        // empty-string newName, then create + persist Persona { Name = "" }.
+        // The Load filter would drop it on next start, but the in-memory
+        // registry would carry it for the current session — and a
+        // FakeClient bound to that persona would write an empty pool name
+        // (CFC PRE's name override falls back to engine default). See #15.
         var newName = fallbackRoster
+            .Where(n => !string.IsNullOrWhiteSpace(n))
             .FirstOrDefault(n => !reservedNames.Contains(Norm(n))
                               && !existingNorm.Contains(Norm(n)));
 
@@ -187,7 +198,12 @@ public sealed class PersonaRegistry
         // CFC PRE empty-FIFO supercede prevents engine_quota cascades that
         // exhaust the roster. If we hit it, log loudly: it means batch
         // size > roster size (32 entries), which is a config/usage issue.
-        if (newName == null) {
+        //
+        // Belt-and-suspenders against #15: IsNullOrWhiteSpace covers null,
+        // empty, and whitespace-only — anything else passing through here
+        // would persist as a broken Persona record and the Load filter
+        // would silently drop it on next start.
+        if (string.IsNullOrWhiteSpace(newName)) {
             Log.Warn($"AcquireForSpawn: roster exhausted (reserved={reservedNames.Count}, " +
                      $"existing={existingNorm.Count}). Synthesizing player{_nextId} sentinel — " +
                      $"will be GC'd on next Load() per migration regex.");
