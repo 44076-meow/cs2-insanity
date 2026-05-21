@@ -103,6 +103,13 @@ public sealed class InsanityRevivePlugin : BasePlugin
                 if (_manager == null) return HookResult.Continue;
                 int winnerTeam = @event.Winner;  // 2=T, 3=CT, 0=draw
 
+                // Draw (winnerTeam=0, or other non-T/CT codes used for
+                // forfeit/abort): don't dispatch RoundEnd — otherwise every
+                // managed bot interprets `win = (0 == botTeam) == false`
+                // as a personal loss, inflating LossStreak/Tilt and falsely
+                // tripping the complacency-wakeup path on rounds nobody won.
+                if (winnerTeam != 2 && winnerTeam != 3) return HookResult.Continue;
+
                 double ctSum = 0, tSum = 0;
                 int ctCount = 0, tCount = 0;
                 foreach (var c in CounterStrikeSharp.API.Utilities.GetPlayers())
