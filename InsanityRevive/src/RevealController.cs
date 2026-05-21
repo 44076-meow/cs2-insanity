@@ -439,8 +439,17 @@ public sealed class RevealController
         if (_botTargetTeams.Count == 0) return;
         foreach (var (slot, target) in _botTargetTeams) {
             try {
+                // Slot-ownership guard (#18). CS2 freely re-uses freed
+                // slots; if a bot disconnected (bot_kick, engine drop)
+                // and a human took the slot, EnforceTeamMembership would
+                // force-switch the human every tick. Skip slots no longer
+                // owned by a managed bot. Belt-and-suspenders: also skip
+                // if the slot now belongs to an authorized human (Steam
+                // ID present — managed bots have none).
+                if (_mgr.FindBySlot(slot) == null) continue;
                 var c = Utilities.GetPlayerFromSlot(slot);
                 if (c == null || !c.IsValid) continue;
+                if (c.AuthorizedSteamID != null) continue;
                 if ((int)c.TeamNum == target) continue;
                 c.SwitchTeam((CsTeam)target);
             } catch { }
@@ -1033,9 +1042,14 @@ public sealed class RevealController
             // team-cap overflow re-join their original team here.
             foreach (var (slot, prevTeam) in _botPrevTeams) {
                 try {
+                    // Slot-ownership guard (#18). Bot may have disconnected
+                    // mid-reveal; a human on the freed slot would otherwise
+                    // be force-switched to the bot's pre-reveal team here.
+                    if (_mgr.FindBySlot(slot) == null) continue;
                     var c = Utilities.GetPlayerFromSlot(slot);
-                    if (c != null && c.IsValid)
-                        c.SwitchTeam((CsTeam)prevTeam);
+                    if (c == null || !c.IsValid) continue;
+                    if (c.AuthorizedSteamID != null) continue;  // human moved in
+                    c.SwitchTeam((CsTeam)prevTeam);
                 } catch (Exception ex) { Log.Debug($"Restore team slot={slot}: {ex.Message}"); }
             }
             _botPrevTeams.Clear();
@@ -1216,6 +1230,29 @@ public sealed class RevealController
     // ──────────────────────────────────────────────────────────────────
     // Event hooks
     // ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Drop all per-slot state when a client (bot or human) disconnects.
+    /// Fixes #18: CS2 freely re-uses freed slots; without this purge, the
+    /// per-tick enforcers (EnforceTeamMembership / HELL respawn / cvar
+    /// restore) would treat whoever lands on the slot next as the old
+    /// bot — force-switching humans to the bot's reveal team, scheduling
+    /// respawns + m249 hand-outs, etc.
+    ///
+    /// Called from InsanityRevivePlugin's OnClientDisconnect listener
+    /// AFTER FakeClientManager has processed the disconnect. Safe to call
+    /// for any slot; dict removes are no-ops if the slot wasn't tracked.
+    /// </summary>
+    public void OnClientDisconnect(int slot)
+    {
+        if (Stage == RevealStage.Idle) return;
+        _botTargetTeams.Remove(slot);
+        _botPrevTeams.Remove(slot);
+        _combatState.Remove(slot);
+        _lastRespawnTick.Remove(slot);
+        _apocalypseCarriers.Remove(slot);
+    }
+
     public void OnPlayerDeath(int victimSlot, bool victimIsBot)
     {
         if (Stage == RevealStage.Idle) return;
@@ -1246,8 +1283,17 @@ public sealed class RevealController
                 // settles), then re-apply m249 + armor 1 tick later.
                 Server.RunOnTick(now + 32, () => {
                     try {
+                        // Slot-ownership guard (#18). Between scheduling
+                        // and firing this callback (~0.5s), the original
+                        // bot may have disconnected and a human taken its
+                        // slot — c.Respawn() would force-respawn the human
+                        // and the chained ApplyM249Rush would hand them a
+                        // m249/negev. Verify the slot still belongs to a
+                        // managed bot before either operation.
+                        if (_mgr.FindBySlot(victimSlot) == null) return;
                         var c = Utilities.GetPlayerFromSlot(victimSlot);
                         if (c == null || !c.IsValid) return;
+                        if (c.AuthorizedSteamID != null) return;  // human moved in
                         c.Respawn();
                         Server.RunOnTick(Server.TickCount + 4, () => {
                             var fc = _mgr.FindBySlot(victimSlot);
