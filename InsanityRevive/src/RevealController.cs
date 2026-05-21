@@ -1058,6 +1058,10 @@ public sealed class RevealController
             _stage4LastVisionTick = 0;
         } catch (Exception ex) { Log.Error($"CleanupReveal: {ex.Message}"); }
         Stage = RevealStage.Idle;
+        // Telemetry MUST come before the counter reset below: post-reveal
+        // analysis reads totalKills / _zeroHumansTickCount / etc. from
+        // this event. Do not invert this ordering during cleanup-of-the-
+        // cleanup refactors.
         _mgr.Telemetry.Write("reveal_cleanup", new Dictionary<string, object?> {
             { "totalKills", _botsKilledThisReveal } });
         _botsKilledThisReveal = 0;
@@ -1071,10 +1075,14 @@ public sealed class RevealController
         //     mp_restartgame respawn flicker would push it past the
         //     threshold and EndReveal within the first second.
         //   _humansAtStart / _stage2Triggered / _lastRespawnTick: EnterStage0
-        //     resets _humansAtStart and _stage2Triggered, and EnterStage3
-        //     clears _lastRespawnTick — but only on the happy path. Reset
-        //     here so an aborted reveal that never reached the resetting
-        //     stage still leaves us in a known-clean state.
+        //     is the authoritative writer for _humansAtStart and
+        //     _stage2Triggered; EnterStage3 clears _lastRespawnTick — but
+        //     only on the happy path. Reset here so an aborted reveal that
+        //     never reached the resetting stage still leaves us in a known-
+        //     clean state. The _humansAtStart=0 assignment is technically
+        //     redundant for the normal Start()→EnterStage0 path (which
+        //     overwrites it) but load-bearing for any abort path that
+        //     calls CleanupReveal without going through EnterStage0 next.
         _zeroHumansTickCount = 0;
         _humansAtStart = 0;
         _stage2Triggered = false;
