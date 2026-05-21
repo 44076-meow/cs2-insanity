@@ -90,6 +90,16 @@ public sealed class RevealController
     private readonly Random _rng = new();
 
     /// <summary>
+    /// Monotonic counter incremented at every CleanupReveal. Reveal-scoped
+    /// delayed callbacks (chat-spam, stage transitions, post-restartgame
+    /// work, HELL MODE respawns) capture this on scheduling and bail out
+    /// when it changes — prevents stale timers from a previous reveal
+    /// firing into a new reveal cycle. See <see cref="ScheduleStageWork"/>.
+    /// Issue #4.
+    /// </summary>
+    private int _revealGen;
+
+    /// <summary>
     /// Consecutive ticks where LivingHumansCount() returned 0 during
     /// Stage 1+2. Stage 3 only fires after this exceeds
     /// <see cref="ZeroHumansDampenTicks"/> — rides out respawn flicker
@@ -208,7 +218,7 @@ public sealed class RevealController
             Log.Info("Reveal: fleet empty — auto-restoring (clearing override) and retrying in 10s");
             _mgr.Config.SetFleetSizeOverride(null);
             Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] fleet empty — restoring, retrying reveal in 10s");
-            Server.RunOnTick(Server.TickCount + 64 * 10, () => {
+            ScheduleStageWork(64 * 10, () => {
                 if (Stage == RevealStage.Idle && _mgr.All.Count > 0)
                     EnterStage0();
                 else
@@ -258,8 +268,7 @@ public sealed class RevealController
             for (int j = 0; j < SpamMessagesPerBot; j++)
             {
                 int delayTicks = cumulativeTicks;
-                Server.RunOnTick(Server.TickCount + delayTicks,
-                    () => SayAsBot(capturedFc, "1"));
+                ScheduleStageWork(delayTicks, () => SayAsBot(capturedFc, "1"));
                 // Roll next delay 0.2-0.5 sec uniform.
                 double sec = 0.2 + _rng.NextDouble() * 0.3;
                 cumulativeTicks += (int)(sec * 64);
@@ -277,7 +286,7 @@ public sealed class RevealController
         // teleport up via m_vecOrigin, or trigger via console alias).
 
         // At t=5s: enter Stage 1.
-        Server.RunOnTick(Server.TickCount + 5 * 64, () => {
+        ScheduleStageWork(5 * 64, () => {
             if (Stage == RevealStage.Stage0) EnterStage1();
         });
     }
@@ -358,7 +367,7 @@ public sealed class RevealController
 
         // (6) +1.5s after restart: do team flip with cap awareness and
         //     belt-and-suspenders schema-write fallback.
-        Server.RunOnTick(Server.TickCount + (int)(64 * 1.5), () => {
+        ScheduleStageWork((int)(64 * 1.5), () => {
             if (Stage != RevealStage.Stage1) return;
             FlipTeamsWithCap(botTeam);
         });
@@ -366,7 +375,7 @@ public sealed class RevealController
         // (7) +5s after restart: teleport swarm to human centroid, then
         //     apply knife rush. Allows team flip to settle (3.5s buffer
         //     after FlipTeams).
-        Server.RunOnTick(Server.TickCount + 64 * 5, () => {
+        ScheduleStageWork(64 * 5, () => {
             if (Stage != RevealStage.Stage1) return;
             DeploySwarmAndKnifeRush();
         });
@@ -622,8 +631,11 @@ public sealed class RevealController
         // and CCSPlayerPawn re-init) before giving m249s. Earlier 2-tick
         // delay raced with respawn machinery and crashed the server.
         Server.ExecuteCommand("mp_restartgame 1");
-        Server.RunOnTick(Server.TickCount + 64 * 4, () => {
+        ScheduleStageWork(64 * 4, () => {
             // Re-check stage in case CleanupReveal raced (re-trigger).
+            // (Belt-and-suspenders — ScheduleStageWork already bails on
+            // generation mismatch, but the stage check guards the case
+            // where the same reveal cycle moved past Stage 2 naturally.)
             if (Stage != RevealStage.Stage2) return;
             foreach (var fc in _mgr.All) ApplyM249Rush(fc);
         });
@@ -1000,7 +1012,10 @@ public sealed class RevealController
         if (_mgr.Config.RevealAutoRestart) {
             // mp_restartgame 1 revives killed humans for next !reveal.
             // 2-tick delay so chat message renders before round flash.
-            Server.RunOnTick(Server.TickCount + 2,
+            // Gen-scoped: if user re-triggers !reveal in the 2-tick gap,
+            // the autorestart skips so it doesn't mp_restartgame the new
+            // reveal's Stage 0.
+            ScheduleStageWork(2,
                 () => Server.ExecuteCommand("mp_restartgame 1"));
         }
     }
@@ -1013,6 +1028,10 @@ public sealed class RevealController
     /// </summary>
     public void CleanupReveal()
     {
+        // Bump generation FIRST — any scheduled callback queued under the
+        // outgoing generation will see _revealGen != captured-gen and
+        // bail out. See ScheduleStageWork. Issue #4.
+        _revealGen++;
         try {
             Server.ExecuteCommand("host_timescale 1.0");
             // Restore captured cvars. null = never captured (Stage 0 or
@@ -1061,6 +1080,24 @@ public sealed class RevealController
         _mgr.Telemetry.Write("reveal_cleanup", new Dictionary<string, object?> {
             { "totalKills", _botsKilledThisReveal } });
         _botsKilledThisReveal = 0;
+    }
+
+    /// <summary>
+    /// Schedule a reveal-scoped delayed action. The callback no-ops if
+    /// CleanupReveal ran between scheduling and firing — protects
+    /// against stale callbacks from a prior reveal leaking into a new
+    /// one (Stage transitions, post-restartgame setup, HELL MODE
+    /// respawns, chat-spam, slowmo restore, autorestart, etc.).
+    /// Use this wrapper everywhere a reveal-scoped delayed action goes
+    /// through <see cref="Server.RunOnTick"/>. Issue #4.
+    /// </summary>
+    private void ScheduleStageWork(int delayTicks, Action work)
+    {
+        int gen = _revealGen;
+        Server.RunOnTick(Server.TickCount + delayTicks, () => {
+            if (gen != _revealGen) return;  // stale: cleanup ran since scheduling
+            work();
+        });
     }
 
     private void RestoreNormalLoadout(FakeClient fc)
@@ -1244,12 +1281,12 @@ public sealed class RevealController
                 _lastRespawnTick[victimSlot] = now;
                 // Schedule respawn ~0.5s after death (camera + ragdoll
                 // settles), then re-apply m249 + armor 1 tick later.
-                Server.RunOnTick(now + 32, () => {
+                ScheduleStageWork(32, () => {
                     try {
                         var c = Utilities.GetPlayerFromSlot(victimSlot);
                         if (c == null || !c.IsValid) return;
                         c.Respawn();
-                        Server.RunOnTick(Server.TickCount + 4, () => {
+                        ScheduleStageWork(4, () => {
                             var fc = _mgr.FindBySlot(victimSlot);
                             if (fc != null) ApplyM249Rush(fc);
                         });
@@ -1263,7 +1300,7 @@ public sealed class RevealController
         if (Stage == RevealStage.Stage2)
         {
             Server.ExecuteCommand("host_timescale 0.3");
-            Server.RunOnTick(Server.TickCount + (int)(2 * 64 * 0.3),
+            ScheduleStageWork((int)(2 * 64 * 0.3),
                 () => Server.ExecuteCommand("host_timescale 1.0"));
         }
     }
