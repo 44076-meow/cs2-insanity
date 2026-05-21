@@ -1177,7 +1177,15 @@ public sealed class RevealController
                 if (pawn == null || !pawn.IsValid) continue;
                 if (pawn.LifeState != 0) continue;  // dead — wait for next round
 
-                var active = pawn.WeaponServices?.ActiveWeapon?.Value;
+                // WeaponServices is null briefly during a respawn / equip
+                // transition — wait for next tick instead of spamming
+                // GiveNamedItem at 64 Hz, which both churns engine entity
+                // creation AND races the engine's own loadout setup.
+                // Issue #8.
+                var weaponServices = pawn.WeaponServices;
+                if (weaponServices == null) continue;
+
+                var active = weaponServices.ActiveWeapon?.Value;
                 if (active == null) {
                     c.GiveNamedItem("weapon_knife");
                     continue;
