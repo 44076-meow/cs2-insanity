@@ -181,6 +181,10 @@ bool Pool::LookupPerSlotAim(uint64_t botPtr, float& outPitch, float& outYaw) con
     return false;
 }
 
+// DIAGNOSTIC-ONLY since Etap D (commit 172f86e) — the C# AimController no
+// longer consumes the bt_target_* fields. Keep writing so a hybrid mode
+// can revive the channel without a v7 → v8 pool bump; see pool_format.h
+// and issue #46 for the rationale.
 void Pool::WriteBotTargetForBot(uint64_t botPtr, float btPitch, float btYaw) {
     if (!m_pBase || botPtr == 0) return;
     auto* base = reinterpret_cast<uint8_t*>(m_pBase) + POOL_AIM_SLOTS_OFFSET;

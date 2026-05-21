@@ -25,6 +25,18 @@
 // to know BT's intended target without stale-read pollution. Solves
 // the sample/write phase lag — C# can react every tick to fresh BT
 // data instead of caching a target across N ticks.
+//
+// !!! DIAGNOSTIC-ONLY since Etap D (commit 172f86e, AimController own
+// target picker). The C# AimController stopped reading bt_target_pitch /
+// bt_target_yaw when it gained its own target picker; the C++ writer is
+// retained so the channel can be revived if a hybrid mode lands, but
+// nothing in the read path currently consumes these values. DO NOT wire a
+// new consumer to these fields assuming they reflect engine BT's *current*
+// target without first re-reading aim_hook.cpp — the feedback-loop bug
+// that Etap C+ fixed (#issue context) would otherwise re-emerge. If you
+// need a fresh-target channel, bump the pool to v8 and add a new pair so
+// the diagnostic-only intent of v7 remains clear. See issue #46.
+//
 //   [+0..+7]   uint64 bot_key          CCSBot* pointer (the AI struct,
 //                                       == `this` inside CCSBot::Update-
 //                                       LookAngles). NOT the CCSPlayer-
@@ -38,8 +50,12 @@
 //   [+8..+11]  uint32 enabled          0: no override, 1: use override
 //   [+12..+15] float  pitch            override pitch (C# writes)
 //   [+16..+19] float  yaw              override yaw (C# writes)
-//   [+20..+23] float  bt_target_pitch  fresh BT m_lookPitch (C++ writes)
-//   [+24..+27] float  bt_target_yaw    fresh BT m_lookYaw   (C++ writes)
+//   [+20..+23] float  bt_target_pitch  DIAGNOSTIC-ONLY since Etap D —
+//                                       C++ still writes fresh BT m_lookPitch
+//                                       each tick, C# no longer reads.
+//   [+24..+27] float  bt_target_yaw    DIAGNOSTIC-ONLY since Etap D —
+//                                       C++ still writes fresh BT m_lookYaw
+//                                       each tick, C# no longer reads.
 //   [+28..+31] uint32 reserved         0 / alignment
 //
 // AIM OVERRIDE block (v5, 2026-05-08; per-slot extension v6, 2026-05-09):
@@ -112,8 +128,13 @@ constexpr size_t POOL_AIM_SLOT_BOT_OFFSET        = 0;   // uint64
 constexpr size_t POOL_AIM_SLOT_ENABLED_OFFSET    = 8;   // uint32
 constexpr size_t POOL_AIM_SLOT_PITCH_OFFSET      = 12;  // float — C# writes
 constexpr size_t POOL_AIM_SLOT_YAW_OFFSET        = 16;  // float — C# writes
-constexpr size_t POOL_AIM_SLOT_BT_PITCH_OFFSET   = 20;  // float — C++ writes BT's m_lookPitch
-constexpr size_t POOL_AIM_SLOT_BT_YAW_OFFSET     = 24;  // float — C++ writes BT's m_lookYaw
+// DIAGNOSTIC-ONLY since Etap D (commit 172f86e) — C++ keeps writing each
+// tick, but the C# AimController no longer consumes these. Kept so the
+// channel can be revived for a hybrid mode without another pool bump.
+// Don't wire a new consumer assuming "fresh" semantics without re-reading
+// aim_hook.cpp; see issue #46 for the footgun rationale.
+constexpr size_t POOL_AIM_SLOT_BT_PITCH_OFFSET   = 20;  // float — C++ writes BT's m_lookPitch (diagnostic)
+constexpr size_t POOL_AIM_SLOT_BT_YAW_OFFSET     = 24;  // float — C++ writes BT's m_lookYaw   (diagnostic)
 // 28..31 = reserved/alignment
 
 constexpr size_t POOL_TOTAL = POOL_AIM_SLOTS_OFFSET + (POOL_AIM_SLOT_COUNT * POOL_AIM_SLOT_BYTES);  // 6052

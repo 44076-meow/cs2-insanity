@@ -40,11 +40,14 @@ public:
     bool LookupPerSlotAim(uint64_t botPtr, float& outPitch, float& outYaw) const;
 
     // v7 — write BT's freshly-set m_lookPitch/Yaw into the AimSlot's
-    // bt_target fields so C# AimController can read it next tick without
-    // having to read m_lookPitch directly (which we clobber with our
-    // override). Linear scan to find matching entry; if no entry is
-    // registered for this CCSBot, this is a no-op (fine — bots without
-    // C# AimController control don't need the feedback channel).
+    // bt_target fields. Originally added (Etap C+) so the C# AimController
+    // could read BT's intended target next tick without stale-read
+    // pollution from our override. DIAGNOSTIC-ONLY since Etap D
+    // (commit 172f86e — AimController gained its own target picker and
+    // stopped consuming this channel). Writer is retained so the channel
+    // can be revived without bumping the pool to v8 if a hybrid mode is
+    // ever needed; see pool_format.h + issue #46. Linear scan to find
+    // matching entry; no-op if no entry is registered for this CCSBot.
     void WriteBotTargetForBot(uint64_t botPtr, float btPitch, float btYaw);
 
     // Writes (writable mmap, v3+).
