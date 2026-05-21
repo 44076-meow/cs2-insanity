@@ -331,6 +331,14 @@ the latest set, preserving image URLs and the `legacy_model` flag.
 - **Doppler / Printstream phases** need `legacy_model: false` AND the
   bodygroup toggle to render their secondary design layer. Already
   handled — listed here in case the importer ever loses the flag.
+- **Music kit picker is display-only** (issue #57). Picking a kit for
+  self / human / bot updates `m_iMusicKitID` so the MVP screen shows
+  the kit name, but the anthem audio is gated by Steam ownership on
+  the listener's client. A non-owning listener hears silence; bots
+  are silent for everyone regardless. Empirically confirmed
+  2026-05-17 — see `ApplyMusicKit` docstring (revert commit `4dc8883a`)
+  for the engine-side rationale. The web-panel music-kit row now
+  carries an inline caveat reflecting this.
 
 ## Roadmap
 
