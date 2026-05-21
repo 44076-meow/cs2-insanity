@@ -111,9 +111,12 @@ common case of "swap one paint mid-round".
 | `css_insanity_paints_reload` | Hot-reload `settings.json`, all catalogs, `players.json`, `bots.json`. No restart needed. |
 
 Server console can always call it; in-game callers need the admin
-flag. **Caveat**: hot-reloads have been observed to leak "ghost"
-managed-bot slots on the Revive side. If a roster grows past expected
-size after a reload, full process restart fixes it.
+flag. Reloading Paints alone never affected the Revive roster (Paints
+is a read-only consumer of the mmap pool); the historical "ghost
+managed-bot slot" leak on a Revive hot-reload was fixed in `fd9a478f`
+("Revive: skip bot-kick on hot-reload Unload (fixes ghost
+accumulation)"). Verified live: roster of 8 stays at 8 across
+`css_plugins reload InsanityRevive`.
 
 ## Configuration files
 
@@ -323,11 +326,14 @@ the latest set, preserving image URLs and the `legacy_model` flag.
   it. Workaround: don't issue that command combo by hand;
   competitive-gamemode auto-warmup transitions don't trigger it
   (verified empirically across 98min of normal play).
-- **Hot-reload occasionally leaks ghost bot slots** on the Revive
-  side. After a `css_plugins reload InsanityPaints`, the roster can
-  grow past `FleetSize` with stale entities. They show up as not
-  `is_managed_bot` in `/api/online`. Kick them manually with
-  `kickid <slot>` or do a full process restart.
+- **Hot-reload ghost bot slots (FIXED in `fd9a478f`).** A
+  `css_plugins reload InsanityRevive` used to leave the previous
+  managed-bot roster behind, doubling the player count on next
+  spawn pass; Paints reloads never affected the roster (Paints is
+  a read-only consumer of the mmap pool). The Revive Unload path
+  now threads a `hotReload` flag through `FakeClientManager.OnUnload`
+  and skips the Despawn loop on plugin reload — verified roster
+  stays at 8 of 8 across reloads.
 - **Doppler / Printstream phases** need `legacy_model: false` AND the
   bodygroup toggle to render their secondary design layer. Already
   handled — listed here in case the importer ever loses the flag.
