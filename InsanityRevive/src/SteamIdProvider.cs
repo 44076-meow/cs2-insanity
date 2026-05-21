@@ -41,9 +41,3 @@ public sealed class SyntheticSteamIdProvider : ISteamIdProvider
         }
     }
 }
-
-public static class SteamIdProviderFactory
-{
-    public static ISteamIdProvider Create(Config cfg, string sessionId)
-        => new SyntheticSteamIdProvider(sessionId);
-}
