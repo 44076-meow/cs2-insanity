@@ -201,7 +201,7 @@ public sealed class FakeClientManager : IDisposable
         Plugin = plugin;
         Config = cfg;
         Telemetry = telemetry;
-        SteamIds = SteamIdProviderFactory.Create(cfg, telemetry.SessionId);
+        SteamIds = new SyntheticSteamIdProvider(telemetry.SessionId);
         Detour = new ProcessUsercmdsDetour();
         _registry = new PersonaRegistry();
         Fleet = new FleetManager(this);
