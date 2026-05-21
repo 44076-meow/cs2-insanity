@@ -196,6 +196,27 @@ public sealed class InsanityRevivePlugin : BasePlugin
     /// similar) may not always be populated; if they aren't, fall
     /// through to the baseline. Don't crash on access.
     /// </summary>
+    private static double EstimateHumanSkill(CCSPlayerController c)
+    {
+        try
+        {
+            // Try score / K-D-style heuristic via Score property on the
+            // controller. CSSharp exposes c.Score (sum of points) — high
+            // scores correlate roughly with skill but are too noisy
+            // mid-round. Fallback to baseline 50 for v1.
+            int score = c.Score;
+            if (score <= 0) return 50.0;
+            // Linear map 0–60 score → 50–80 skill. Cap to keep estimate
+            // away from extremes; complacency math is robust to noise.
+            double s = 50.0 + Math.Min(30.0, score * 0.5);
+            return s;
+        }
+        catch
+        {
+            return 50.0;
+        }
+    }
+
     /// <summary>
     /// Per-bot performance signal for the complacency mechanic, derived
     /// from in-match K/D via <c>c.ActionTrackingServices.MatchStats</c>.
@@ -227,27 +248,6 @@ public sealed class InsanityRevivePlugin : BasePlugin
         catch
         {
             return 0.5;
-        }
-    }
-
-    private static double EstimateHumanSkill(CCSPlayerController c)
-    {
-        try
-        {
-            // Try score / K-D-style heuristic via Score property on the
-            // controller. CSSharp exposes c.Score (sum of points) — high
-            // scores correlate roughly with skill but are too noisy
-            // mid-round. Fallback to baseline 50 for v1.
-            int score = c.Score;
-            if (score <= 0) return 50.0;
-            // Linear map 0–60 score → 50–80 skill. Cap to keep estimate
-            // away from extremes; complacency math is robust to noise.
-            double s = 50.0 + Math.Min(30.0, score * 0.5);
-            return s;
-        }
-        catch
-        {
-            return 50.0;
         }
     }
 
