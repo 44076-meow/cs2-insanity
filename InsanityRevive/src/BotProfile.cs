@@ -201,9 +201,12 @@ public sealed class BotProfile
     /// listed, this is a no-op (forward-compat — modules can fire
     /// arbitrary kinds without errors).
     ///
-    /// "RoundEnd" with non-null <paramref name="args"/> updates streaks +
-    /// mood + complacency (skill-gap based). "RoundEnd" without args
-    /// only bumps RoundsPlayed and recomputes mood — legacy path.
+    /// "RoundEnd" requires non-null <paramref name="args"/> — it updates
+    /// streaks + mood + complacency (skill-gap based). The string-only
+    /// <see cref="NotifyEvent(string)"/> overload is no-op for "RoundEnd"
+    /// (all in-tree producers pass args; the no-args call survives only
+    /// as a forward-compat hook for "Death"/"Kill"/"RoundWin"/"RoundLoss"
+    /// and unknown kinds).
     /// </summary>
     public void NotifyEvent(string kind) => NotifyEvent(kind, null);
 
@@ -222,25 +225,23 @@ public sealed class BotProfile
                 break;
 
             case "RoundEnd":
+                if (args == null) break;
                 RoundsPlayed++;
-                if (args != null)
+                if (args.Win)
                 {
-                    if (args.Win)
-                    {
-                        WinStreak++;
-                        LossStreak = 0;
-                        Tilt = Math.Max(0, Tilt - 3);
-                    }
-                    else
-                    {
-                        LossStreak++;
-                        WinStreak = 0;
-                        if (LossStreak >= 2)
-                            Tilt = Math.Min(100, Tilt + 3 + (TiltProneness / 12));
-                    }
+                    WinStreak++;
+                    LossStreak = 0;
+                    Tilt = Math.Max(0, Tilt - 3);
+                }
+                else
+                {
+                    LossStreak++;
+                    WinStreak = 0;
+                    if (LossStreak >= 2)
+                        Tilt = Math.Min(100, Tilt + 3 + (TiltProneness / 12));
                 }
                 RecomputeMood();
-                if (args != null && RoundsPlayed > 1)
+                if (RoundsPlayed > 1)
                     UpdateComplacency(args);
                 // Frustrated mood breaks complacency by definition.
                 if (Mood == Mood.Frustrated && Complacency > 15f)
