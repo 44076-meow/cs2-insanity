@@ -47,7 +47,13 @@ public sealed class FakeClientManager : IDisposable
     private readonly PersonaRegistry _registry;
     // Personas issued via Spawn() but not yet adopted via AdoptController.
     // FIFO order matches engine's bot_add processing — first push, first adopt.
-    private readonly Queue<int> _pendingPersonaIds = new();
+    //
+    // Each entry carries the enqueue tick so we can timeout-drain stale
+    // entries (engine refused bot_add silently → OCC/CPiS never fires →
+    // pending ID stays forever and Reconcile stops growing the fleet).
+    // Drained at 1Hz from OnTick by DrainStalePending. Issue #9.
+    private readonly Queue<(int Id, int EnqueueTick)> _pendingPersonaIds = new();
+    private const int PendingTimeoutTicks = 64 * 5;  // 5 sec @ 64 Hz
     // Counter for source="command" vs "engine_quota" tagging. Spawn()
     // bumps it; AdoptController consumes one. Refused bot_adds may leak
     // a count → next engine bot is mis-tagged. Accepted as race-free.
@@ -301,7 +307,7 @@ public sealed class FakeClientManager : IDisposable
             // is normalized.
             var reserved = new HashSet<string>(StringComparer.Ordinal);
             foreach (var p in _registry.Active) reserved.Add(Normalize(p.Name));
-            foreach (var pid in _pendingPersonaIds)
+            foreach (var (pid, _) in _pendingPersonaIds)
             {
                 var p2 = _registry.GetById(pid);
                 if (p2 != null) reserved.Add(Normalize(p2.Name));
@@ -311,12 +317,27 @@ public sealed class FakeClientManager : IDisposable
             persona = _registry.AcquireForSpawn(NamePool, reserved);
         }
 
+        // Sanity cap on pending queue. If the engine is stuck refusing
+        // bot_add (gamemode lock, warmup transition, full server), we'd
+        // otherwise enqueue persona IDs forever. The 1Hz DrainStalePending
+        // sweep handles steady-state, but capping at schedule time
+        // prevents a fast Spawn loop (e.g. operator script) from racing
+        // past the drain. Min-floor 16 so FleetSize=0/low values don't
+        // brick manual `insanity_spawn_bots N`. Issue #9.
+        int pendingCap = Math.Max(Config.FleetSize * 2, 16);
+        if (_pendingPersonaIds.Count >= pendingCap)
+        {
+            Log.Warn($"Spawn: pending queue at cap ({_pendingPersonaIds.Count}/{pendingCap}), " +
+                     $"refusing — engine may be declining bot_add. DrainStalePending will recover in ≤5s.");
+            return;
+        }
+
         if (!_pool.PushFifo(persona.Name))
         {
             Log.Warn($"Spawn: FIFO full ({PoolMmap.FifoCapacity}), drop persona='{persona.Name}'");
             return;
         }
-        _pendingPersonaIds.Enqueue(persona.Id);
+        _pendingPersonaIds.Enqueue((persona.Id, Server.TickCount));
         _commandSpawnsPending++;
         Server.ExecuteCommand(team == FakeTeam.CT ? "bot_add ct" : "bot_add t");
         Telemetry.Write("spawn_request", new Dictionary<string, object?> {
@@ -450,7 +471,7 @@ public sealed class FakeClientManager : IDisposable
         Persona? persona = null;
         if (_pendingPersonaIds.Count > 0)
         {
-            var pid = _pendingPersonaIds.Dequeue();
+            var (pid, _) = _pendingPersonaIds.Dequeue();
             persona = _registry.GetById(pid);
             if (persona != null && !string.IsNullOrEmpty(poolName)
                 && !string.Equals(poolName, persona.Name, StringComparison.Ordinal))
@@ -680,11 +701,48 @@ public sealed class FakeClientManager : IDisposable
                 { "jitterMs", fc.Network.JitterRangeMs }, { "lossRate60s", loss } });
         }
 
+        DrainStalePending();
+
         // 1-second persistent bot_quota re-assert. Engine resets quota at
         // warmup_end and round-restart; without periodic enforcement it
         // creeps up to default (10) and triggers the supercede CPU-loop
         // (320+ /sec). Cheap (one ExecuteCommand per second).
         EnforceBotQuota();
+    }
+
+    /// <summary>
+    /// 1Hz sweep of <see cref="_pendingPersonaIds"/> — drops entries older
+    /// than <see cref="PendingTimeoutTicks"/> (5 s). Without this, a silent
+    /// bot_add refusal (engine race, gamemode lock, warmup transition) leaves
+    /// persona IDs in the queue forever — Reconcile sums them into `total`
+    /// and stops growing the fleet because it thinks the spawns are still
+    /// in flight. Issue #9.
+    /// </summary>
+    private void DrainStalePending()
+    {
+        if (_pendingPersonaIds.Count == 0) return;
+        int now = Server.TickCount;
+        int dropped = 0;
+        while (_pendingPersonaIds.Count > 0
+            && now - _pendingPersonaIds.Peek().EnqueueTick > PendingTimeoutTicks)
+        {
+            var (pid, enqueueTick) = _pendingPersonaIds.Dequeue();
+            // ReleaseSlot is belt-and-braces — a never-adopted persona's
+            // ActiveOnSlot was never bound, so it's already null. Safe
+            // no-op in the normal case.
+            _registry.ReleaseSlot(pid);
+            // Mirror the bot_add we issued but never saw resolve — the
+            // counter sits unconsumed otherwise.
+            if (_commandSpawnsPending > 0) _commandSpawnsPending--;
+            Telemetry.Write("pending_timeout", new Dictionary<string, object?> {
+                { "personaId", pid }, { "ageTicks", now - enqueueTick } });
+            dropped++;
+        }
+        if (dropped > 0)
+        {
+            Log.Warn($"DrainStalePending: dropped {dropped} stale entries " +
+                     $"(>{PendingTimeoutTicks / 64}s old). Engine may be refusing bot_add silently.");
+        }
     }
 
     private void EmitPerTickTelemetry(FakeClient fc)
