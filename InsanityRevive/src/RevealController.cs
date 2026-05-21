@@ -973,11 +973,16 @@ public sealed class RevealController
                 return;
             }
 
-            // Position then spawn — DispatchSpawn finalizes networked-state
-            // from keyvalues, so any schema write BEFORE DispatchSpawn can
-            // get clobbered by the spawn-time defaulting pass (issue #21).
-            explosion.Teleport(pos, new QAngle(), new Vector());
+            // DispatchSpawn finalizes networked-state from keyvalues —
+            // anything we write to the entity BEFORE that pass can get
+            // clobbered by spawn-time defaulting (issue #21 for magnitude/
+            // radius). Origin is no different: a pre-spawn Teleport may
+            // be reset to the entity-dict default (world origin) by the
+            // same pass, in which case the explosion would fire at
+            // (0,0,0) regardless of `pos`. Spawn first with an empty
+            // entity, THEN teleport + configure schema, THEN trigger.
             explosion.DispatchSpawn();
+            explosion.Teleport(pos, new QAngle(), new Vector());
 
             // Configure magnitude + radius via schema AFTER DispatchSpawn so
             // the values stick at the moment Explode reads them. If
