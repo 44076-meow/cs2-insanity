@@ -7,10 +7,20 @@ namespace InsanityRevive;
 /// Filters damage on managed bots during reveal stages.
 ///
 /// Two flavors of damage are blocked when active:
-///   1) Inflictor class is inferno / molotov_projectile / hegrenade_projectile.
-///      Used by Stage 4 APOCALYPSE so the grenade-rain effect fries humans
-///      but not the swarm itself. Without this the molotovs from probe 2 of
+///   1) Inflictor class is inferno / molotov_projectile / hegrenade_projectile
+///      / env_explosion. Used by Stage 4 APOCALYPSE so the grenade-rain
+///      effect and C4 carrier detonations fry humans but not the swarm
+///      itself. Without this the molotovs from probe 2 of
 ///      `notes/stage_3_4_probes.md` would mulch our own bots first.
+///
+///      env_explosion side-effect: this also blocks damage from MAP-PLACED
+///      env_explosion entities (workshop maps, demolition scripts, scripted
+///      barrel bursts) — managed bots survive what a human in the same spot
+///      doesn't. Accepted trade because Stage 4 dominates the use case and
+///      the alternative (entity-tracking dict mapping handle → "is one of
+///      ours") would need lifecycle hooks on SpawnExplosionAt + cleanup on
+///      env_explosion's death event. Revisit if community-map play surfaces
+///      a concrete asymmetry complaint.
 ///   2) Attacker is another managed bot. Belt-and-suspenders for Stage 1+
 ///      after `mp_teammates_are_enemies` experiments — even if that path
 ///      is reintroduced later, bots will not damage each other directly.
