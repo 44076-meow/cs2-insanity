@@ -206,13 +206,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download InsanityRevive artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: InsanityRevive-${{ github.sha }}
           path: out/cssharp
 
       - name: Download InsanityHider artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: InsanityHider-${{ github.sha }}
           path: out/hider
