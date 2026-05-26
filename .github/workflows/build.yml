@@ -262,7 +262,7 @@ jobs:
           retention-days: 90
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           # All current tags are -beta / -alpha. A hyphenated tag is
           # treated as pre-release; clean tags like v1.0.0 publish as
