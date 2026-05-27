@@ -16,6 +16,9 @@ low-population servers feel populated instead of empty.
 
 </div>
 
+> [!NOTE]
+> **Development is currently on hold. For further details, please refer to the `Discussions` section.**
+
 ---
 
 > [!WARNING]
