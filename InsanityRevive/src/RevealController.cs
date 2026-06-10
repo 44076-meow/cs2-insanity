@@ -948,21 +948,46 @@ public sealed class RevealController
         // alongside the humans. Idempotent — Install no-ops if already on.
         if (!_mgr.DamagePatch.IsInstalled) _mgr.DamagePatch.Install();
 
-        // Promote 1-of-N bots to C4 carriers + capture probe pawn.
+        // Promote ~1-of-N bots to C4 carriers (issue #24).
+        //
+        // Old impl used index-modulo (`i % Stage4CarrierFraction == 0`). If
+        // the bot at index k*F happened to be dead / invalid / mid-respawn,
+        // the slot was silently skipped and carrierCount shrank below the
+        // design fraction — pathological case: every Nth bot in flicker →
+        // 0 carriers → Stage 4 sits idle for Stage4MaxDurationSec doing
+        // nothing. Decouple the target count from index position: pre-
+        // filter alive bots, then take the first `target` of them.
         var bots = _mgr.All.ToList();
-        int carrierCount = 0;
         CCSPlayerPawn? probePawn = null;
-        for (int i = 0; i < bots.Count; i++)
+        int target = bots.Count == 0
+            ? 0
+            // ceil(N/F) — preserves original count for all-alive case
+            // (e.g. 6 bots / 3 → 2; 7 bots / 3 → 3; 9 bots / 3 → 3).
+            : Math.Max(1, (bots.Count + Stage4CarrierFraction - 1) / Stage4CarrierFraction);
+
+        var alive = new List<FakeClient>(bots.Count);
+        foreach (var fc in bots)
         {
-            if (i % Stage4CarrierFraction != 0) continue;
-            var fc = bots[i];
             try
             {
                 var c = Utilities.GetPlayerFromSlot(fc.Slot);
                 if (c == null || !c.IsValid) continue;
                 var pawn = c.PlayerPawn?.Value;
                 if (pawn == null || !pawn.IsValid || pawn.LifeState != 0) continue;
+                alive.Add(fc);
+            }
+            catch (Exception ex) { Log.Debug($"Stage4 alive-filter slot={fc.Slot}: {ex.Message}"); }
+        }
 
+        int carrierCount = 0;
+        foreach (var fc in alive.Take(target))
+        {
+            try
+            {
+                var c = Utilities.GetPlayerFromSlot(fc.Slot);
+                if (c == null || !c.IsValid) continue;  // re-check; state can drift between filter and promote
+                var pawn = c.PlayerPawn?.Value;
+                if (pawn == null || !pawn.IsValid) continue;
                 c.GiveNamedItem("weapon_c4");
                 _combatState[fc.Slot] = new BotCombatState {
                     ForcedWeapon = "weapon_c4", StageWhenSet = RevealStage.Stage4 };
@@ -974,6 +999,12 @@ public sealed class RevealController
                 if (probePawn == null) probePawn = pawn;
             }
             catch (Exception ex) { Log.Error($"Stage4 give c4 slot={fc.Slot}: {ex.Message}"); }
+        }
+
+        if (target > alive.Count)
+        {
+            Log.Warn($"Stage 4 APOCALYPSE: only {alive.Count}/{target} desired carriers " +
+                     $"({alive.Count} bots alive of {bots.Count} fleet)");
         }
 
         // Bootstrap-resolve beep against a known-good emitter (first
@@ -989,7 +1020,7 @@ public sealed class RevealController
         });
 
         Log.Info($"Stage 4 APOCALYPSE: {carrierCount} carriers armed of {bots.Count} bots " +
-                 $"(fraction 1/{Stage4CarrierFraction})");
+                 $"(target {target}, fraction 1/{Stage4CarrierFraction})");
     }
 
     private void TickStage4()
