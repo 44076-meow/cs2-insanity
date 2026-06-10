@@ -6,8 +6,10 @@
 // AimController scans alive enemy controllers, applies a 180° front-cone
 // FOV filter (relative to bot's current eye yaw — discourages 360° spin-
 // to-track-enemy-behind-you), picks closest, computes aim angle from
-// bot eye-pos to target body-center, applies skill-scaled uniform noise,
-// writes to AimSlot pool.
+// bot eye-pos to target body-center, applies a smoothed per-target miss
+// offset (#43) scaled by skill and bot velocity (#45), writes to AimSlot
+// pool. On target switch the eye holds its previous angle for the
+// profile's reaction time before tracking the new target.
 //
 // Why own target: engine BT's target picking is the floor we couldn't
 // beat by degrading. With own target picking, "good aim" is a real
@@ -59,6 +61,26 @@ public sealed class AimController
     private int   _lastSlot = -1;  // slot we last wrote to — clear on slot change
     private uint  _lastTargetSlotPlus1;  // target's slot+1 (so 0 = "no target last tick")
 
+    // Smoothed per-target scatter (#43). Direction of the miss is a unit
+    // offset in [-1,1] per axis, persisted across ticks for the current
+    // target and resampled only on target change or after the profile's
+    // reaction interval. Magnitude is recomputed every tick (skill ×
+    // movement), so the offset direction stays stable while its size
+    // breathes with bot velocity — no write-phase caching, no added lag
+    // (the 8-tick cache attempt cost 110 ms and was rolled back).
+    private float _scatterUnitP;
+    private float _scatterUnitY;
+    private int   _scatterAgeTicks;
+
+    // Reaction-delay onset (#43): on target switch the eye holds the last
+    // written angle for CurrentReactionMs before tracking the new target —
+    // "hasn't reacquired yet" instead of a same-tick snap.
+    private int   _acquireTicksLeft;
+    private float _latchPitchDeg;
+    private float _latchYawDeg;
+    private float _lastWrittenPitch;
+    private float _lastWrittenYaw;
+
     // xorshift32 state for per-bot, per-tick aim noise. Seeded lazily from
     // BotProfile.Seed so two bots with the same skill/profile don't share
     // an RNG sequence (which would cluster their misses identically).
@@ -89,9 +111,20 @@ public sealed class AimController
     /// by (1 − CurrentAimSkill/100), so skill=100 → 0°, skill=50 → 2.5°,
     /// skill=0 → 5°. Picked to be visibly bad at low skill (a 5° flick miss
     /// at 30 m is ~2.6 m, full-body offset) but not silly: BT will still
-    /// converge on the player when skill is high. Etap C+ will replace
-    /// uniform noise with per-target scatter and twitch reaction.</summary>
+    /// converge on the player when skill is high. Direction of the error
+    /// is the smoothed per-target scatter (see #43); magnitude additionally
+    /// scales with bot velocity (see #45).</summary>
     private const float MaxAimErrorDeg = 5f;
+
+    /// <summary>Movement-vs-camp error scaling (#45). A bot holding an
+    /// angle keeps its base error; a bot mid-run multiplies it. Ramp is
+    /// linear on horizontal speed between CampSpeed and RunSpeed u/s
+    /// (walk ≈ 85, run ≈ 250 in CS2), capped at MoveErrorMultMax. Applied
+    /// on top of the per-skill factor: a camping low-skill bot still
+    /// misses, a running high-skill bot is no longer laser-precise.</summary>
+    private const float CampSpeed       = 30f;
+    private const float RunSpeed        = 220f;
+    private const float MoveErrorMultMax = 2.75f;
 
     public bool Armed => _armed;
     public int  LastTargetSlot => (int)_lastTargetSlotPlus1 - 1;
@@ -155,7 +188,6 @@ public sealed class AimController
         // is positive when looking up (target above), so negate.
         float pitchDeg = -MathF.Atan2(dz, MathF.Max(0.001f, dist2d)) * 180f / MathF.PI;
 
-        // Apply skill-scaled noise.
         if (!_rngSeeded)
         {
             ulong s = (profile?.Seed ?? 0xDEADBEEFCAFEBABEUL) ^ ((ulong)(uint)slot << 32) ^ 0xA1B2C3D4E5F60718UL;
@@ -163,18 +195,73 @@ public sealed class AimController
             if (_rng == 0) _rng = 0xCAFEBABE;
             _rngSeeded = true;
         }
-        float skill = profile?.CurrentAimSkill ?? 50f;
-        float errorFactor = MathF.Max(0f, 1f - skill / 100f);
-        float errorDeg = errorFactor * MaxAimErrorDeg;
-        float noiseP = NextFloatM1to1() * errorDeg;
-        float noiseY = NextFloatM1to1() * errorDeg;
-        float overP = MathF.Max(-89f, MathF.Min(89f, pitchDeg + noiseP));
-        float overY = yawDeg + noiseY;
+
+        // Reaction interval in ticks (64 Hz server). Floor of 1 tick so a
+        // degenerate profile can't divide the resample cadence to zero.
+        int reactionTicks = Math.Max(1, (profile?.CurrentReactionMs ?? 250) * 64 / 1000);
+
+        uint targetKey = (uint)(target.Slot + 1);
+        if (targetKey != _lastTargetSlotPlus1)
+        {
+            // Target switch: latch the previous written angle for the
+            // reaction window (only if we were tracking someone — coming
+            // from disarmed, the engine owned the eye and there is nothing
+            // of ours to hold).
+            if (_lastTargetSlotPlus1 != 0 && _armed)
+            {
+                _acquireTicksLeft = reactionTicks;
+                _latchPitchDeg = _lastWrittenPitch;
+                _latchYawDeg   = _lastWrittenYaw;
+            }
+            ResampleScatter();
+            _lastTargetSlotPlus1 = targetKey;
+        }
+        else if (++_scatterAgeTicks >= reactionTicks)
+        {
+            // Same target, but the human "re-estimates" where the enemy is
+            // about once per reaction interval — drift the miss direction.
+            ResampleScatter();
+        }
 
         ulong botKey = (ulong)bot.Handle.ToInt64();
+
+        if (_acquireTicksLeft > 0)
+        {
+            // Reaction-delay onset: hold the stale angle; the eye reaches
+            // the new target only after the profile's reaction time.
+            _acquireTicksLeft--;
+            pool.WriteAimSlot(slot, botKey, enabled: true, pitch: _latchPitchDeg, yaw: _latchYawDeg);
+            _armed = true;
+            return;
+        }
+
+        // Error magnitude: per-skill factor × movement multiplier (#45).
+        float skill = profile?.CurrentAimSkill ?? 50f;
+        float errorFactor = MathF.Max(0f, 1f - skill / 100f);
+        float speed2d = 0f;
+        var vel = pawn.AbsVelocity;
+        if (vel != null) speed2d = MathF.Sqrt(vel.X * vel.X + vel.Y * vel.Y);
+        float moveT = Math.Clamp((speed2d - CampSpeed) / (RunSpeed - CampSpeed), 0f, 1f);
+        float moveMult = 1f + moveT * (MoveErrorMultMax - 1f);
+        float errorDeg = errorFactor * MaxAimErrorDeg * moveMult;
+
+        float overP = MathF.Max(-89f, MathF.Min(89f, pitchDeg + _scatterUnitP * errorDeg));
+        float overY = yawDeg + _scatterUnitY * errorDeg;
+
         pool.WriteAimSlot(slot, botKey, enabled: true, pitch: overP, yaw: overY);
         _armed = true;
-        _lastTargetSlotPlus1 = (uint)(target.Slot + 1);
+        _lastWrittenPitch = overP;
+        _lastWrittenYaw   = overY;
+    }
+
+    /// <summary>Resample the persistent miss direction (unit offset per
+    /// axis) and reset its age. Called on target change and once per
+    /// reaction interval while tracking the same target.</summary>
+    private void ResampleScatter()
+    {
+        _scatterUnitP = NextFloatM1to1();
+        _scatterUnitY = NextFloatM1to1();
+        _scatterAgeTicks = 0;
     }
 
     /// <summary>Pick closest alive enemy controller within FOV cone of
@@ -239,6 +326,7 @@ public sealed class AimController
         if (pool != null && pool.IsOpen && _lastSlot >= 0) pool.ClearAimSlot(_lastSlot);
         _armed = false;
         _lastTargetSlotPlus1 = 0;
+        _acquireTicksLeft = 0;  // never carry a stale reaction latch across re-arm
     }
 
     private static float AngleDelta(float a, float b)
