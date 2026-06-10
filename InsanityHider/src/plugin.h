@@ -78,9 +78,14 @@ public:
     using CUtlStringSetFn = void (*)(void* /*CUtlString this*/, const char*);
     CUtlStringSetFn m_pUtlStringSet = nullptr;
 
+    // Latched OFF state, set when a layout-drift defense trips (e.g.,
+    // the candidate CUtlString field at kNameOffset doesn't look like a
+    // userspace pointer). Public so the OverwriteEngineName free
+    // function in plugin.cpp can latch it without becoming a member.
+    bool m_bSelfDisabled = false;  // latched on pool header corruption or layout drift
+
 private:
     InsanityHider::Pool m_Pool;
-    bool m_bSelfDisabled = false;  // latched on pool header corruption
     void* m_pHookedGameServer = nullptr;  // diagnostic-only — last instance ptr; never dereferenced (UAF, issue #10)
     int   m_StartChangeLevelHookId = 0;   // SH_ADD_HOOK_MEMFUNC return; SH_REMOVE_HOOK_ID without touching stale instance
     void* m_pTier0 = nullptr;       // dlopen handle for libtier0.so

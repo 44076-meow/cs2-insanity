@@ -127,9 +127,37 @@ static CServerSideClient* ResolveClientBySlot(int slot) {
 // so the caller can verify the write took.
 static const char* OverwriteEngineName(InsanityHiderPlugin* plugin, void* pClient, const char* newName) {
     if (!plugin->m_pUtlStringSet || !pClient || !newName || !newName[0]) return nullptr;
-    void* pUtlString = reinterpret_cast<unsigned char*>(pClient) + kNameOffset;
-    plugin->m_pUtlStringSet(pUtlString, newName);
-    return *reinterpret_cast<const char**>(pUtlString);  // CUtlString::m_pString at offset 0
+    auto* nameField = reinterpret_cast<unsigned char*>(pClient) + kNameOffset;
+
+    // Layout-drift defense (#14): validate the 8 bytes at +kNameOffset look
+    // like a CUtlString::m_pString candidate before handing them to Set —
+    // which will free() the existing value via the engine allocator. If a
+    // CS2 engine update shifts CServerSideClient, the field here could be
+    // an int counter, a signed flag, or a non-canonical address; free() on
+    // any of those silently corrupts the heap (arbitrary-pointer free or
+    // double-free against a live allocation).
+    //
+    // The probe is a heuristic, not a proof: a stomped large integer that
+    // *happens* to land in the user-mode canonical range can still slip
+    // through. But it catches the realistic drift cases (small ints,
+    // negative flags, non-canonical pointers) without false positives on
+    // legitimate CUtlString states. A null m_pString is the engine-
+    // initialized state and is safe — Set handles delete[] nullptr.
+    uintptr_t cur;
+    memcpy(&cur, nameField, sizeof(cur));
+    constexpr uintptr_t kUserspaceTopMask = 0xFFFF800000000000ULL;
+    if (cur != 0 && (cur < 0x10000ULL || (cur & kUserspaceTopMask) != 0)) {
+        META_CONPRINTF("[InsanityHider] OverwriteEngineName: m_pString=0x%lx at "
+                       "+%d fails canonical-userspace check — layout drift "
+                       "suspected, latching self-disable to avoid heap "
+                       "corruption from CUtlString::Set\n",
+                       (unsigned long)cur, kNameOffset);
+        plugin->m_bSelfDisabled = true;
+        return nullptr;
+    }
+
+    plugin->m_pUtlStringSet(nameField, newName);
+    return *reinterpret_cast<const char**>(nameField);  // CUtlString::m_pString at offset 0
 }
 
 void InsanityHiderPlugin::Hook_OnClientConnected_Post(CPlayerSlot slot, const char* pszName, uint64,
