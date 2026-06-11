@@ -1,5 +1,5 @@
 name: Bug report
-description: Reproducible defect in InsanityRevive or InsanityHider.
+description: Reproducible defect in Replica or ReplicaHider.
 title: "[bug] <short summary>"
 labels: ["bug", "needs-triage"]
 body:
@@ -36,8 +36,8 @@ body:
     attributes:
       label: Which side is affected?
       options:
-        - "InsanityRevive (C# / CSSharp)"
-        - "InsanityHider (C++ / Metamod)"
+        - "Replica (C# / CSSharp)"
+        - "ReplicaHider (C++ / Metamod)"
         - "Both / interaction between the two"
         - "Unclear"
     validations:
@@ -67,7 +67,7 @@ body:
     id: logs
     attributes:
       label: Logs / telemetry
-      description: Server console + InsanityRevive JSONL, trimmed.
+      description: Server console + Replica JSONL, trimmed.
       render: text
   - type: checkboxes
     id: scope

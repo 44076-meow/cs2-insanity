@@ -1,7 +1,7 @@
 # Stage 4 — live probe results
 
 This file is the live-verification companion to `notes/stage_3_4_probes.md`
-(desk research) and `InsanityRevive/src/Probe.cs` (the rcon commands that
+(desk research) and `Replica/src/Probe.cs` (the rcon commands that
 issue the probes).
 
 Each probe section is filled in **after** a friend playtest where a connected

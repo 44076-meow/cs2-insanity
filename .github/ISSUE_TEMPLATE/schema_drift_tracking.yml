@@ -10,7 +10,7 @@ body:
     id: discussion-link
     attributes:
       label: Originating Discussions thread
-      placeholder: "https://github.com/Frad70/cs2-insanity/discussions/..."
+      placeholder: "https://github.com/Frad70/replica/discussions/..."
     validations:
       required: true
   - type: input

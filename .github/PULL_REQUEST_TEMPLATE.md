@@ -9,17 +9,17 @@ obvious from the diff.
 
 ## Side(s) touched
 
-- [ ] InsanityRevive (C# / CSSharp / .NET 8)
-- [ ] InsanityHider (C++ / Metamod:Source)
-- [ ] Shared mmap protocol (`/tmp/insanityrevive_fake_slots.bin`)
+- [ ] Replica (C# / CSSharp / .NET 8)
+- [ ] ReplicaHider (C++ / Metamod:Source)
+- [ ] Shared mmap protocol (`/tmp/replica_fake_slots.bin`)
 - [ ] CI / build / `scripts/`
 - [ ] Docs / `notes/`
 
 ## Pool / protocol compatibility
 
 - [ ] No change to the shared-pool layout.
-- [ ] Pool layout changed — version bumped in both `InsanityRevive` and
-      `InsanityHider`, and the older version is rejected with a clear log
+- [ ] Pool layout changed — version bumped in both `Replica` and
+      `ReplicaHider`, and the older version is rejected with a clear log
       line on both sides.
 
 ## Detour / schema impact

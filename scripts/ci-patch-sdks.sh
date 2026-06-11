@@ -5,7 +5,7 @@
 # repeated local builds).
 #
 # Usage: scripts/ci-patch-sdks.sh <hl2sdk-root>
-# Example: scripts/ci-patch-sdks.sh InsanityHider/hl2sdk
+# Example: scripts/ci-patch-sdks.sh ReplicaHider/hl2sdk
 
 set -eu -o pipefail
 

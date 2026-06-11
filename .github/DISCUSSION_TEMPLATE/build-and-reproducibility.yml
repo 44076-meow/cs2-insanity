@@ -14,10 +14,10 @@ body:
     attributes:
       label: Where does it fail?
       options:
-        - "InsanityRevive — `dotnet build` fails locally"
-        - "InsanityRevive — sha256 differs between the two CI passes"
-        - "InsanityHider — `make` fails against vendored hl2sdk"
-        - "InsanityHider — vendored SDK patch (`scripts/ci-patch-sdks.sh`) doesn't apply"
+        - "Replica — `dotnet build` fails locally"
+        - "Replica — sha256 differs between the two CI passes"
+        - "ReplicaHider — `make` fails against vendored hl2sdk"
+        - "ReplicaHider — vendored SDK patch (`scripts/ci-patch-sdks.sh`) doesn't apply"
         - "Metamod load fails at runtime"
         - "CounterStrikeSharp API.dll path / version mismatch"
         - "Other"

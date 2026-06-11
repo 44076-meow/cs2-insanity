@@ -1,14 +1,14 @@
 <div align="center">
 
-# *INSANITY* → Replicá
+# *REPLICA* → Replicá
 
 **A two-plugin engineering experiment for Counter-Strike 2 dedicated servers.**
 Gives engine bots a more lifelike scoreboard presence — synthetic SteamID64s,
 curated persona names, jittered ping, no `BOT` glyph — so practice and
 low-population servers feel populated instead of empty.
 
-[![build](https://github.com/Frad70/cs2-insanity/actions/workflows/build.yml/badge.svg)](https://github.com/Frad70/cs2-insanity/actions/workflows/build.yml)
-[![codeql](https://github.com/Frad70/cs2-insanity/actions/workflows/codeql.yml/badge.svg)](https://github.com/Frad70/cs2-insanity/actions/workflows/codeql.yml)
+[![build](https://github.com/Frad70/replica/actions/workflows/build.yml/badge.svg)](https://github.com/Frad70/replica/actions/workflows/build.yml)
+[![codeql](https://github.com/Frad70/replica/actions/workflows/codeql.yml/badge.svg)](https://github.com/Frad70/replica/actions/workflows/codeql.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![stage: early alpha](https://img.shields.io/badge/stage-early%20alpha-orange)
 ![CS2 dedicated](https://img.shields.io/badge/target-CS2%20dedicated%20server-informational)
@@ -20,9 +20,9 @@ low-population servers feel populated instead of empty.
 > **Development is currently on hold. For further details, please refer to the `Discussions` section.**
 
 > [!NOTE]
-> The project has been renamed; **insanity is now Replicá.** <br>
-> "Insanity" was just for reveal until now, whereas the idea behind the project is replicating professional players — virtual players indistinguishable from humans. That's what the rename means. <br>
-> The rename brings: repository cs2-insanity → replica, new logo, and `replica_*` → `replica_*`. <br>
+> The project has been renamed; **replica is now Replicá.** <br>
+> "Replica" was just for reveal until now, whereas the idea behind the project is replicating professional players — virtual players indistinguishable from humans. That's what the rename means. <br>
+> The rename brings: repository replica → replica, new logo, and `replica_*` → `replica_*`. <br>
 > Razones: es un buen nombre y suena a Pokémon. ¡Replicá!
 
 ---
@@ -66,12 +66,12 @@ interesting work is the plumbing underneath:
 
 | Plugin | Side | Role |
 | --- | --- | --- |
-| **`InsanityRevive/`** | CSSharp · CounterStrikeSharp · .NET 8 | Lifecycle owner. Spawns bots via `bot_add`, overwrites identity (name, SteamID, profile, ping), JSONL telemetry, `ProcessUsercmds` detour, mapchange survival. Source of truth for the shared pool. |
-| **`InsanityHider/`** | Metamod:Source · C++ | Sits early in the engine callback chain. On `OnClientConnected` post-hook, flips `m_bFakePlayer = 0` for slots marked in the shared pool — *before* the engine's userinfo broadcast leaves the server. |
+| **`Replica/`** | CSSharp · CounterStrikeSharp · .NET 8 | Lifecycle owner. Spawns bots via `bot_add`, overwrites identity (name, SteamID, profile, ping), JSONL telemetry, `ProcessUsercmds` detour, mapchange survival. Source of truth for the shared pool. |
+| **`ReplicaHider/`** | Metamod:Source · C++ | Sits early in the engine callback chain. On `OnClientConnected` post-hook, flips `m_bFakePlayer = 0` for slots marked in the shared pool — *before* the engine's userinfo broadcast leaves the server. |
 
 ### Shared pool — 132-byte mmap
 
-The two halves communicate through `/tmp/insanityrevive_fake_slots.bin`:
+The two halves communicate through `/tmp/replica_fake_slots.bin`:
 
 ```text
 [ 0.. 3]  magic    = 0x46534E49 ('INSF')
@@ -107,7 +107,7 @@ bot — selectivity is the whole point.
 - .NET 8 SDK.
 - A CS2 dedicated server install (the C++ side needs the schema layout to
   match a real server).
-- `hl2sdk-cs2` + `metamod-source` vendored beside `InsanityHider/` (the CI
+- `hl2sdk-cs2` + `metamod-source` vendored beside `ReplicaHider/` (the CI
   workflow under [`.github/workflows/build.yml`](.github/workflows/build.yml)
   does this from scratch and is the canonical reference).
 
@@ -117,15 +117,15 @@ bot — selectivity is the whole point.
 # C# / CSSharp plugin. Point at a CounterStrikeSharp install via SRCDS_ROOT,
 # or override the API DLL location explicitly:
 export SRCDS_ROOT=/path/to/cs2-dedicated-server
-cd InsanityRevive && dotnet build -c Release
+cd Replica && dotnet build -c Release
 # or:
-cd InsanityRevive && dotnet build -c Release \
+cd Replica && dotnet build -c Release \
     -p:CSSharpApiPath=/path/to/CounterStrikeSharp.API.dll
 
 # C++ / Metamod plugin.
 # Vendor the SDKs once, apply a small compat patch (see scripts/ci-patch-sdks.sh
 # header for the rationale), then build:
-cd InsanityHider
+cd ReplicaHider
 git clone --depth 1 --branch cs2    https://github.com/alliedmodders/hl2sdk.git           hl2sdk
 git clone --depth 1 --branch master https://github.com/alliedmodders/metamod-source.git   mmsource
 ../scripts/ci-patch-sdks.sh hl2sdk
@@ -136,7 +136,7 @@ make
 
 The [`scripts/deploy.sh`](scripts/deploy.sh) helper builds, prints a
 deploy-baseline stanza (commit-sha + DLL sha256), and optionally copies the
-binary to `$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/plugins/InsanityRevive/`:
+binary to `$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/plugins/Replica/`:
 
 ```bash
 SRCDS_ROOT=/path/to/cs2-dedicated-server ./scripts/deploy.sh --auto
@@ -150,8 +150,8 @@ The `PersonaRegistry` JSON file was relocated from a developer-only
 absolute path to a `Server.GameDirectory`-relative path so the public
 build doesn't depend on a `/home/<user>/` layout.
 
-- **Before** (≤ `1d1d9a3^`): `~/cs2-server/insanity/personas.json`
-- **After**  (≥ `1d1d9a3`):  `$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/InsanityRevive/personas.json`
+- **Before** (≤ `1d1d9a3^`): `~/cs2-server/replica/personas.json`
+- **After**  (≥ `1d1d9a3`):  `$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/Replica/personas.json`
 
 If you ran an earlier build, the plugin will not pick up your old file
 on first load and will start re-minting personas from the fallback
@@ -161,9 +161,9 @@ roster. The previous file remains stranded at its original location.
 
 ```bash
 # Adjust SRCDS_ROOT to your install.
-mkdir -p "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/InsanityRevive"
-mv ~/cs2-server/insanity/personas.json \
-   "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/InsanityRevive/personas.json"
+mkdir -p "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/Replica"
+mv ~/cs2-server/replica/personas.json \
+   "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/Replica/personas.json"
 ```
 
 If your old `personas.json` lived somewhere other than the historical
@@ -187,7 +187,7 @@ find the file at the new location — that line is the prompt to migrate.
 ## Upgrade notes
 
 The repo doesn't carry a CHANGELOG yet, so cvar/option churn lives here.
-If a previous `replica.cfg` (formerly `insanity.cfg`) (or an `autoexec.cfg` that `exec`s into it)
+If a previous `replica.cfg` (formerly `replica.cfg`) (or an `autoexec.cfg` that `exec`s into it)
 still references one of the names below, you'll see `unknown command`
 warnings on the console at map start; remove the line — behaviour is
 unchanged.
@@ -204,7 +204,7 @@ dropped at public release):
 
 If you previously kept either line in a server-side config, drop it.
 `SyntheticSteamIdProvider` is selected unconditionally
-(`InsanityRevive/src/SteamIdProvider.cs`).
+(`Replica/src/SteamIdProvider.cs`).
 
 ## Project status
 

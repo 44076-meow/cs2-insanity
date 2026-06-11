@@ -56,7 +56,7 @@ Out of scope (will be closed):
 ## Code style
 
 - C# — repo `.editorconfig` is canonical. `dotnet format` on touched files.
-- C++ — follow surrounding style in `InsanityHider/src/`. No new
+- C++ — follow surrounding style in `ReplicaHider/src/`. No new
   dependencies without prior discussion.
 - Commits — past-tense imperative, prefix tag (`ci:`, `aim:`, `schema:`,
   `pool:`, `docs:`, `notes:`) where the existing log uses one. See
