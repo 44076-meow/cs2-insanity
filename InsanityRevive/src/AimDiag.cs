@@ -28,8 +28,8 @@
 // If actual_dir matches NEITHER (and not m_lookPitch/Yaw) → answer is (B):
 // shoot direction is synthesized in usercmd, no field carries it.
 //
-// Output lands in server.log with [Insanity][INFO] AimDiag prefix. Toggle
-// via insanity_aim_diag rcon (default off — events fire too often otherwise).
+// Output lands in server.log with [Replica][INFO] AimDiag prefix. Toggle
+// via replica_aim_diag rcon (default off — events fire too often otherwise).
 // =============================================================================
 
 using System;

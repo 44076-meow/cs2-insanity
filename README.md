@@ -22,7 +22,7 @@ low-population servers feel populated instead of empty.
 > [!NOTE]
 > The project has been renamed; **insanity is now Replicá.** <br>
 > "Insanity" was just for reveal until now, whereas the idea behind the project is replicating professional players — virtual players indistinguishable from humans. That's what the rename means. <br>
-> The rename brings: repository cs2-insanity → replica, new logo, and `insanity_*` → `replica_*`. <br>
+> The rename brings: repository cs2-insanity → replica, new logo, and `replica_*` → `replica_*`. <br>
 > Razones: es un buen nombre y suena a Pokémon. ¡Replicá!
 
 ---
@@ -187,7 +187,7 @@ find the file at the new location — that line is the prompt to migrate.
 ## Upgrade notes
 
 The repo doesn't carry a CHANGELOG yet, so cvar/option churn lives here.
-If a previous `insanity.cfg` (or an `autoexec.cfg` that `exec`s into it)
+If a previous `replica.cfg` (formerly `insanity.cfg`) (or an `autoexec.cfg` that `exec`s into it)
 still references one of the names below, you'll see `unknown command`
 warnings on the console at map start; remove the line — behaviour is
 unchanged.
@@ -197,9 +197,9 @@ unchanged.
 Removed cvars (no replacement — the real-SteamID provider mode was
 dropped at public release):
 
-- `insanity_steamid_mode` — was `synthetic` / `real`. The synthetic
+- `replica_steamid_mode` — was `synthetic` / `real`. The synthetic
   provider is now the only one; the cvar has no effect.
-- `insanity_real_steamids_file` — pointed at the real-SteamID JSONL
+- `replica_real_steamids_file` — pointed at the real-SteamID JSONL
   consumed by the `real` mode. Unused now; safe to delete the file too.
 
 If you previously kept either line in a server-side config, drop it.

@@ -712,7 +712,7 @@ public sealed class BotProfile
     }
 
     /// <summary>
-    /// Multi-line dump for `insanity_profile <slot>` rcon. Includes
+    /// Multi-line dump for `replica_profile <slot>` rcon. Includes
     /// dynamic state so admins can see why a bot is behaving the way
     /// it is (high tilt? frustrated mood? low aim from session length?).
     /// </summary>

@@ -80,7 +80,7 @@ static std::set<std::string> g_ExpectedNames;
 // In v0.5.1-beta this roster was the fallback for engine_quota /
 // autoteambalance / manual `bot_add` cases where the CSSharp FIFO was
 // empty. Empirical effect: ghost bots with curated names appeared on
-// slots beyond explicit `insanity_spawn_bots N` (e.g. warmup→match
+// slots beyond explicit `replica_spawn_bots N` (e.g. warmup→match
 // transition spawned 5-10 extras with these names).
 //
 // In v0.5.2-beta this fallback is REMOVED from the active code path:

@@ -323,7 +323,7 @@ public sealed class FakeClientManager : IDisposable
         // sweep handles steady-state, but capping at schedule time
         // prevents a fast Spawn loop (e.g. operator script) from racing
         // past the drain. Min-floor 16 so FleetSize=0/low values don't
-        // brick manual `insanity_spawn_bots N`. Issue #9.
+        // brick manual `replica_spawn_bots N`. Issue #9.
         int pendingCap = Math.Max(Config.FleetSize * 2, 16);
         if (_pendingPersonaIds.Count >= pendingCap)
         {
@@ -572,7 +572,7 @@ public sealed class FakeClientManager : IDisposable
         // its tail), so we leave that pipeline alone; those orphan FIFO
         // names will be popped + adopted, but with _pendingPersonaIds
         // empty they take the engine_quota path and become regular
-        // pickups. Combined with FleetSize=0 (set by insanity_kick_bots)
+        // pickups. Combined with FleetSize=0 (set by replica_kick_bots)
         // they're shrunk on the next Reconcile.
         if (_pendingPersonaIds.Count > 0)
         {

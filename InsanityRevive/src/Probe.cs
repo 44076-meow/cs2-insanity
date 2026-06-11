@@ -2,7 +2,7 @@
 // Probe.cs — temporary live-verification commands for Stage 4 design points.
 // =============================================================================
 //
-// Each method here is a one-shot test exposed via an `insanity_probe_*` rcon
+// Each method here is a one-shot test exposed via an `replica_probe_*` rcon
 // command. They are NOT used by any production code path — they exist purely
 // so a connected client can visually confirm an engine behaviour BEFORE we
 // commit it to a Stage 4 codepath.

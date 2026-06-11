@@ -200,7 +200,7 @@ public sealed class NetworkSimulator
     public int LastSpikeDurationMs => _spikeDurationMs;
     public int LastSpikePeakMs     => _spikePeakMs;
 
-    /// <summary>One-line state dump — for `insanity_net_debug` rcon.</summary>
+    /// <summary>One-line state dump — for `replica_net_debug` rcon.</summary>
     public string DebugStateString()
     {
         return $"latency={CurrentLatencyMs}ms loss={(LossThisTick ? "YES" : "no")} " +

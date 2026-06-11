@@ -41,16 +41,16 @@
 //                control case.
 //
 // Workflow:
-//   insanity_probe_aim_pin <slot> <pitch> <yaw> [seconds] [method]
+//   replica_probe_aim_pin <slot> <pitch> <yaw> [seconds] [method]
 //     -> pin one bot's view to (pitch,yaw); each tick the chosen method
 //        writes that value, then we read EyeAngles back and log what the
 //        engine reports. After [seconds] (default 5) the pin clears.
-//   insanity_probe_aim_persist <slot> <pitch> <yaw> [method]
+//   replica_probe_aim_persist <slot> <pitch> <yaw> [method]
 //     -> like pin but writes ONCE then stops; logs the read-back every tick
 //        for ~3 seconds so we can see whether the engine BT clobbered it.
-//   insanity_probe_aim_unpin [slot|all]
+//   replica_probe_aim_unpin [slot|all]
 //     -> manual cancel.
-//   insanity_probe_aim_status
+//   replica_probe_aim_status
 //     -> dump active pins.
 //
 // Probes are SAFE in production builds — gated by @css/cheats and clamp
@@ -136,7 +136,7 @@ public static class AimProbe
             OneShot   = false,
         };
         return $"slot {slot} ({c.PlayerName}): pinned pitch={pitch:F1} yaw={yaw:F1} " +
-               $"method={method} for {durationSec}s — read EyeAngles via insanity_status";
+               $"method={method} for {durationSec}s — read EyeAngles via replica_status";
     }
 
     public static string PersistSlot(int slot, float pitch, float yaw, Method method)
