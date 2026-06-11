@@ -1,6 +1,6 @@
 <div align="center">
 
-# *REPLICA* → Replicá
+# *INSANITY* → Replicá
 
 **A two-plugin engineering experiment for Counter-Strike 2 dedicated servers.**
 Gives engine bots a more lifelike scoreboard presence — synthetic SteamID64s,
@@ -20,9 +20,9 @@ low-population servers feel populated instead of empty.
 > **Development is currently on hold. For further details, please refer to the `Discussions` section.**
 
 > [!NOTE]
-> The project has been renamed; **replica is now Replicá.** <br>
-> "Replica" was just for reveal until now, whereas the idea behind the project is replicating professional players — virtual players indistinguishable from humans. That's what the rename means. <br>
-> The rename brings: repository replica → replica, new logo, and `replica_*` → `replica_*`. <br>
+> The project has been renamed; **insanity is now Replicá.** <br>
+> "Insanity" was just for reveal until now, whereas the idea behind the project is replicating professional players — virtual players indistinguishable from humans. That's what the rename means. <br>
+> The rename brings: repository cs2-insanity → replica, new logo, and `replica_*` → `replica_*`. <br>
 > Razones: es un buen nombre y suena a Pokémon. ¡Replicá!
 
 ---
