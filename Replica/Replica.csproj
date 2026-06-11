@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Replica</RootNamespace>
+    <AssemblyName>Replica</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- Deterministic builds: same source + same toolchain produce the
+         same dll bytes. Closes the "DLL drift" diagnosis hole — when a
+         deployed binary doesn't match a fresh build of the same commit,
+         that's a real drift, not just non-determinism. See scripts/deploy.sh
+         and chat.md history of v0.6.0.7→0.8 + v0.6.0.10→0.11 incidents. -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <!-- HintPath for CounterStrikeSharp.API.dll. Defaults to the live-server
+         install path so `dotnet build` works on the box. CI overrides via
+         `-p:CSSharpApiPath=…` to point at a runner-fetched copy, avoiding
+         in-place edits to this file. -->
+    <CSSharpApiPath Condition="'$(CSSharpApiPath)' == ''">/mnt/storage/cs2-server/game/csgo/addons/counterstrikesharp/api/CounterStrikeSharp.API.dll</CSSharpApiPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="CounterStrikeSharp.API">
+      <HintPath>$(CSSharpApiPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

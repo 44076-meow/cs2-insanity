@@ -36,7 +36,7 @@ Utilities.SetStateChanged(pawn, "CBaseModelEntity", "m_clrRender");
 
 **Fallback if `m_clrRender` doesn't apply:** spawn a `light_dynamic` entity per bot, parent it to the bot via `m_pParent`, color = red, brightness pulsing. More work (entity lifecycle to track + cleanup), but bypasses the per-pawn render-color limitation.
 
-**Recommendation:** schedule live probe via temporary admin command (`insanity_probe_glow <slot>`) on user's next playtest, BEFORE committing Stage 3 implementation. 5-min test at user's leisure.
+**Recommendation:** schedule live probe via temporary admin command (`replica_probe_glow <slot>`) on user's next playtest, BEFORE committing Stage 3 implementation. 5-min test at user's leisure.
 
 ---
 
@@ -175,8 +175,8 @@ RegisterListener<Listeners.OnEntityTakeDamagePre>((entity, info) => {
 
 Before Stage 3 implementation is committed:
 
-1. **m_clrRender visual test** — temporary `insanity_probe_glow <slot>` rcon command writes Color.Red to one bot, friend reports if visible.
-2. **C4 visual test** — temporary `insanity_probe_c4 <slot>` rcon command gives weapon_c4 to one bot, friend reports model + HUD state.
+1. **m_clrRender visual test** — temporary `replica_probe_glow <slot>` rcon command writes Color.Red to one bot, friend reports if visible.
+2. **C4 visual test** — temporary `replica_probe_c4 <slot>` rcon command gives weapon_c4 to one bot, friend reports model + HUD state.
 
 These two probes can be added as zero-impact temporary admin commands in a separate `Probe.cs` file (NOT touching production code paths). Removed before any tag.
 

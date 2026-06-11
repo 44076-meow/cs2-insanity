@@ -1,0 +1,5 @@
+"Metamod Plugin"
+{
+	"alias"	"replicahider"
+	"file"	"addons/metamod/bin/linuxsteamrt64/replicahider"
+}

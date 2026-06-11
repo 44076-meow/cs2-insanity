@@ -1,7 +1,7 @@
 # Stage 4 — live probe results
 
 This file is the live-verification companion to `notes/stage_3_4_probes.md`
-(desk research) and `InsanityRevive/src/Probe.cs` (the rcon commands that
+(desk research) and `Replica/src/Probe.cs` (the rcon commands that
 issue the probes).
 
 Each probe section is filled in **after** a friend playtest where a connected
@@ -17,7 +17,7 @@ Status legend:
 
 ## Probe 1 — `m_clrRender` red tint on player pawn
 
-**Command:** `insanity_probe_glow <slot> [r g b]` (defaults to red 255/0/0).
+**Command:** `replica_probe_glow <slot> [r g b]` (defaults to red 255/0/0).
 **Code:** `Probe.Glow` — sets `pawn.Render = Color.FromArgb(...)` and calls
 `SchemaSafety.MarkChanged(pawn, "CBaseModelEntity", "m_clrRender")`.
 **Status:** ⚪ PENDING (autonomous session 2026-05-08 — user away, ship code,
@@ -37,7 +37,7 @@ defer live test).
 
 ## Probe 2 — `GiveNamedItem("weapon_c4")` on a bot
 
-**Command:** `insanity_probe_c4 <slot>`.
+**Command:** `replica_probe_c4 <slot>`.
 **Code:** `Probe.GiveC4` — `c.GiveNamedItem("weapon_c4")` on a fake-client
 controller. Same code path used for `weapon_knife` (Stage 1) and
 `weapon_m249` / `weapon_negev` (Stage 2).
@@ -62,7 +62,7 @@ controller. Same code path used for `weapon_knife` (Stage 1) and
 
 ## Probe 3 — `OnEntityTakeDamagePre` filter (BotDamagePatch)
 
-**Command:** `insanity_probe_hurtzero [arm|disarm]` (default: arm).
+**Command:** `replica_probe_hurtzero [arm|disarm]` (default: arm).
 **Code:** `Probe.HurtZeroArmOnce` — installs the production
 `BotDamagePatch` listener (which uses `Listeners.OnEntityTakeDamagePre`
 internally — ported from deprecated `CBaseEntity_TakeDamageOldFunc`
@@ -73,14 +73,14 @@ before Stage 4 wires it automatically.
 verified live — relies on probe 2's molotov / HE rain to trigger).
 
 **Test procedure (when user runs it):**
-1. `insanity_probe_hurtzero arm` (installs filter).
+1. `replica_probe_hurtzero arm` (installs filter).
 2. Trigger bot-vs-bot damage: e.g. `mp_friendlyfire 1` then watch a
    knife rush. Bots should NOT damage each other.
 3. Trigger inferno damage: spawn `inferno` near a bot. Bot should
    take zero damage.
 4. Trigger human damage: a human shoots a bot. Damage should flow
    normally.
-5. `insanity_probe_hurtzero disarm` (removes filter).
+5. `replica_probe_hurtzero disarm` (removes filter).
 
 **Expected outcomes:**
 - 🟢 — bots immune to bot-vs-bot direct hits AND inferno/molotov/HE.

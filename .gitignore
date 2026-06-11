@@ -7,9 +7,9 @@ build/
 *.pdb
 
 # Third-party (vendored at build time)
-InsanityHider/hl2sdk/
-InsanityHider/mmsource/
-InsanityHider/cs2fixes/
+ReplicaHider/hl2sdk/
+ReplicaHider/mmsource/
+ReplicaHider/cs2fixes/
 
 # Editor / OS
 *.user
