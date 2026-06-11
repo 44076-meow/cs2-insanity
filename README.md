@@ -22,7 +22,7 @@ low-population servers feel populated instead of empty.
 > [!NOTE]
 > The project has been renamed; **insanity is now Replicá.** <br>
 > "Insanity" was just for reveal until now, whereas the idea behind the project is replicating professional players — virtual players indistinguishable from humans. That's what the rename means. <br>
-> The rename brings: repository cs2-insanity → replica, new logo, and `replica_*` → `replica_*`. <br>
+> The rename brings: repository cs2-insanity → replica, new logo, and `insanity_*` → `replica_*`. <br>
 > Razones: es un buen nombre y suena a Pokémon. ¡Replicá!
 
 ---
@@ -150,7 +150,7 @@ The `PersonaRegistry` JSON file was relocated from a developer-only
 absolute path to a `Server.GameDirectory`-relative path so the public
 build doesn't depend on a `/home/<user>/` layout.
 
-- **Before** (≤ `1d1d9a3^`): `~/cs2-server/replica/personas.json`
+- **Before** (≤ `1d1d9a3^`): `~/cs2-server/insanity/personas.json`
 - **After**  (≥ `1d1d9a3`):  `$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/Replica/personas.json`
 
 If you ran an earlier build, the plugin will not pick up your old file
@@ -162,7 +162,7 @@ roster. The previous file remains stranded at its original location.
 ```bash
 # Adjust SRCDS_ROOT to your install.
 mkdir -p "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/Replica"
-mv ~/cs2-server/replica/personas.json \
+mv ~/cs2-server/insanity/personas.json \
    "$SRCDS_ROOT/game/csgo/addons/counterstrikesharp/configs/plugins/Replica/personas.json"
 ```
 
@@ -187,7 +187,7 @@ find the file at the new location — that line is the prompt to migrate.
 ## Upgrade notes
 
 The repo doesn't carry a CHANGELOG yet, so cvar/option churn lives here.
-If a previous `replica.cfg` (formerly `replica.cfg`) (or an `autoexec.cfg` that `exec`s into it)
+If a previous `insanity.cfg` (the config's pre-rename name) (or an `autoexec.cfg` that `exec`s into it)
 still references one of the names below, you'll see `unknown command`
 warnings on the console at map start; remove the line — behaviour is
 unchanged.
