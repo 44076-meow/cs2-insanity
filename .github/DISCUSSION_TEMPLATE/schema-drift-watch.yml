@@ -5,7 +5,7 @@ body:
     attributes:
       value: |
         Use this category to report when a CS2 update appears to have broken
-        something in the InsanityRevive / InsanityHider stack — schema
+        something in the Replica / ReplicaHider stack — schema
         offsets, `m_bFakePlayer` patching, detour anchors, or userinfo
         broadcast ordering. One report per drift event; keep follow-ups in
         replies on the same thread.
@@ -61,7 +61,7 @@ body:
     attributes:
       label: Relevant logs / JSONL telemetry
       description: |
-        Server console excerpt, `InsanityRevive` JSONL telemetry lines,
+        Server console excerpt, `Replica` JSONL telemetry lines,
         Metamod load output, or detour-install diagnostics. Wrap in code
         fences.
       render: text

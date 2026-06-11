@@ -70,7 +70,7 @@ jobs:
       - name: Build C# for CodeQL
         if: matrix.language == 'csharp'
         run: |
-          dotnet build InsanityRevive/InsanityRevive.csproj \
+          dotnet build Replica/Replica.csproj \
             -c Release \
             --nologo \
             -p:CSSharpApiPath="${{ github.workspace }}/.ci/cssharp-api/CounterStrikeSharp.API.dll"
@@ -87,7 +87,7 @@ jobs:
         id: cache-hl2sdk
         uses: actions/cache@v5
         with:
-          path: InsanityHider/hl2sdk
+          path: ReplicaHider/hl2sdk
           key: hl2sdk-${{ env.HL2SDK_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
 
       - name: Cache metamod-source clone
@@ -95,28 +95,28 @@ jobs:
         id: cache-mmsource
         uses: actions/cache@v5
         with:
-          path: InsanityHider/mmsource
+          path: ReplicaHider/mmsource
           key: mmsource-${{ env.MMSOURCE_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
 
       - name: Vendor hl2sdk
         if: matrix.language == 'cpp' && steps.cache-hl2sdk.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch "$HL2SDK_BRANCH" \
-            "$HL2SDK_REPO" InsanityHider/hl2sdk
+            "$HL2SDK_REPO" ReplicaHider/hl2sdk
 
       - name: Vendor metamod-source
         if: matrix.language == 'cpp' && steps.cache-mmsource.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch "$MMSOURCE_BRANCH" \
-            "$MMSOURCE_REPO" InsanityHider/mmsource
+            "$MMSOURCE_REPO" ReplicaHider/mmsource
 
       - name: Apply SDK compat patches
         if: matrix.language == 'cpp'
-        run: scripts/ci-patch-sdks.sh InsanityHider/hl2sdk
+        run: scripts/ci-patch-sdks.sh ReplicaHider/hl2sdk
 
       - name: Build C++ for CodeQL
         if: matrix.language == 'cpp'
-        working-directory: InsanityHider
+        working-directory: ReplicaHider
         run: |
           chmod +x hl2sdk/devtools/bin/linux/protoc || true
           make -j"$(nproc)"

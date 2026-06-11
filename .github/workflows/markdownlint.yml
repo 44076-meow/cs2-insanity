@@ -2,7 +2,7 @@ name: markdownlint
 
 on:
   push:
-    # `skins` is the active integration branch for InsanityPaints work
+    # `skins` is the active integration branch for ReplicaPaints work
     # — paints docs land there first. See issue #56.
     branches: [main, skins]
     paths:
@@ -28,5 +28,5 @@ jobs:
           globs: |
             **/*.md
             !**/node_modules/**
-            !InsanityHider/hl2sdk/**
-            !InsanityHider/mmsource/**
+            !ReplicaHider/hl2sdk/**
+            !ReplicaHider/mmsource/**

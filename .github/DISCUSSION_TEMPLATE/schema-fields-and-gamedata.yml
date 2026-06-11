@@ -5,7 +5,7 @@ body:
     attributes:
       value: |
         Discussion of CS2 schema fields, struct offsets, and the gamedata
-        JSON consumed by InsanityRevive. For "this offset moved on the
+        JSON consumed by Replica. For "this offset moved on the
         latest CS2 update", use **Schema drift watch** instead — this
         category is for the underlying *layout*, not breakage events.
         Cross-reference probes in `notes/stage_3_4_probes.md` and
