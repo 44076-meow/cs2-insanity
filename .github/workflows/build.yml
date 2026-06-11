@@ -1,15 +1,15 @@
-# GitHub Actions CI for cs2-insanity.
+# GitHub Actions CI for replica.
 #
 # Triggers on every push to main + every PR + every v*-tag. Goal: catch
 # compile-fails on both halves of the stack before they hit the live server.
 # Does NOT actually deploy — that's still manual via scripts/deploy.sh.
 #
 # Two parallel build jobs:
-#   build-cssharp  — InsanityRevive (C# / .NET 8 / CSSharp). Builds twice
+#   build-cssharp  — Replica (C# / .NET 8 / CSSharp). Builds twice
 #                    and compares sha256 to enforce reproducibility (the
 #                    "DLL drift" failure mode that bit v0.6.0.7→0.8 and
 #                    v0.6.0.10→0.11 — see scripts/deploy.sh comments).
-#   build-hider    — InsanityHider (C++ / Metamod:Source / CS2 SDK).
+#   build-hider    — ReplicaHider (C++ / Metamod:Source / CS2 SDK).
 #
 # A `package` job runs on tag pushes only. It assembles a server-relative
 # tarball, attaches it to a GitHub Release, and marks pre-release on tags
@@ -42,7 +42,7 @@ env:
 
 jobs:
   build-cssharp:
-    name: InsanityRevive (.NET / CSSharp)
+    name: Replica (.NET / CSSharp)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -72,11 +72,11 @@ jobs:
           cp "$api_dll" .ci/cssharp-api/CounterStrikeSharp.API.dll
 
       - name: dotnet restore
-        run: dotnet restore InsanityRevive/InsanityRevive.csproj
+        run: dotnet restore Replica/Replica.csproj
 
       - name: dotnet build (Release, warnings-as-errors) — pass 1
         run: |
-          dotnet build InsanityRevive/InsanityRevive.csproj \
+          dotnet build Replica/Replica.csproj \
             -c Release \
             --no-restore \
             -warnaserror \
@@ -85,24 +85,24 @@ jobs:
 
       - name: Capture pass-1 sha256 + stash DLL
         run: |
-          dll=InsanityRevive/bin/Release/net8.0/InsanityRevive.dll
+          dll=Replica/bin/Release/net8.0/Replica.dll
           [ -f "$dll" ] || { echo "DLL missing post-build" >&2; exit 1; }
           sha1=$(sha256sum "$dll" | awk '{print $1}')
           echo "Pass-1 DLL sha256: $sha1"
           echo "DLL_SHA256=$sha1" >> "$GITHUB_ENV"
           mkdir -p .ci/pass1
-          cp "$dll" .ci/pass1/InsanityRevive.dll
+          cp "$dll" .ci/pass1/Replica.dll
 
       - name: Determinism guard — clean rebuild + compare
         run: |
           # Wipe build outputs so MSBuild can't reuse cached intermediates.
-          rm -rf InsanityRevive/bin InsanityRevive/obj
-          dotnet build InsanityRevive/InsanityRevive.csproj \
+          rm -rf Replica/bin Replica/obj
+          dotnet build Replica/Replica.csproj \
             -c Release \
             -warnaserror \
             --nologo \
             -p:CSSharpApiPath="${{ github.workspace }}/.ci/cssharp-api/CounterStrikeSharp.API.dll"
-          dll=InsanityRevive/bin/Release/net8.0/InsanityRevive.dll
+          dll=Replica/bin/Release/net8.0/Replica.dll
           sha2=$(sha256sum "$dll" | awk '{print $1}')
           echo "Pass-2 DLL sha256: $sha2"
           if [ "$sha2" != "$DLL_SHA256" ]; then
@@ -112,19 +112,19 @@ jobs:
           fi
           echo "✓ deterministic ($sha2)"
 
-      - name: Upload InsanityRevive artifact
+      - name: Upload Replica artifact
         uses: actions/upload-artifact@v4
         with:
-          name: InsanityRevive-${{ github.sha }}
+          name: Replica-${{ github.sha }}
           path: |
-            InsanityRevive/bin/Release/net8.0/InsanityRevive.dll
-            InsanityRevive/bin/Release/net8.0/InsanityRevive.pdb
-            InsanityRevive/cfg/**
-            InsanityRevive/gamedata/**
+            Replica/bin/Release/net8.0/Replica.dll
+            Replica/bin/Release/net8.0/Replica.pdb
+            Replica/cfg/**
+            Replica/gamedata/**
           retention-days: 14
 
   build-paints:
-    name: InsanityPaints (.NET / CSSharp)
+    name: ReplicaPaints (.NET / CSSharp)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -154,11 +154,11 @@ jobs:
           cp "$api_dll" .ci/cssharp-api/CounterStrikeSharp.API.dll
 
       - name: dotnet restore
-        run: dotnet restore InsanityPaints/InsanityPaints.csproj
+        run: dotnet restore ReplicaPaints/ReplicaPaints.csproj
 
       - name: dotnet build (Release, warnings-as-errors) — pass 1
         run: |
-          dotnet build InsanityPaints/InsanityPaints.csproj \
+          dotnet build ReplicaPaints/ReplicaPaints.csproj \
             -c Release \
             --no-restore \
             -warnaserror \
@@ -167,23 +167,23 @@ jobs:
 
       - name: Capture pass-1 sha256 + stash DLL
         run: |
-          dll=InsanityPaints/bin/Release/net8.0/InsanityPaints.dll
+          dll=ReplicaPaints/bin/Release/net8.0/ReplicaPaints.dll
           [ -f "$dll" ] || { echo "DLL missing post-build" >&2; exit 1; }
           sha1=$(sha256sum "$dll" | awk '{print $1}')
           echo "Pass-1 DLL sha256: $sha1"
           echo "PAINTS_DLL_SHA256=$sha1" >> "$GITHUB_ENV"
           mkdir -p .ci/pass1-paints
-          cp "$dll" .ci/pass1-paints/InsanityPaints.dll
+          cp "$dll" .ci/pass1-paints/ReplicaPaints.dll
 
       - name: Determinism guard — clean rebuild + compare
         run: |
-          rm -rf InsanityPaints/bin InsanityPaints/obj
-          dotnet build InsanityPaints/InsanityPaints.csproj \
+          rm -rf ReplicaPaints/bin ReplicaPaints/obj
+          dotnet build ReplicaPaints/ReplicaPaints.csproj \
             -c Release \
             -warnaserror \
             --nologo \
             -p:CSSharpApiPath="${{ github.workspace }}/.ci/cssharp-api/CounterStrikeSharp.API.dll"
-          dll=InsanityPaints/bin/Release/net8.0/InsanityPaints.dll
+          dll=ReplicaPaints/bin/Release/net8.0/ReplicaPaints.dll
           sha2=$(sha256sum "$dll" | awk '{print $1}')
           echo "Pass-2 DLL sha256: $sha2"
           if [ "$sha2" != "$PAINTS_DLL_SHA256" ]; then
@@ -193,20 +193,20 @@ jobs:
           fi
           echo "✓ deterministic ($sha2)"
 
-      - name: Upload InsanityPaints artifact
+      - name: Upload ReplicaPaints artifact
         uses: actions/upload-artifact@v4
         with:
-          name: InsanityPaints-${{ github.sha }}
+          name: ReplicaPaints-${{ github.sha }}
           path: |
-            InsanityPaints/bin/Release/net8.0/InsanityPaints.dll
-            InsanityPaints/bin/Release/net8.0/InsanityPaints.pdb
-            InsanityPaints/bin/Release/net8.0/wwwroot/**
-            InsanityPaints/configs/**
-            InsanityPaints/gamedata/**
+            ReplicaPaints/bin/Release/net8.0/ReplicaPaints.dll
+            ReplicaPaints/bin/Release/net8.0/ReplicaPaints.pdb
+            ReplicaPaints/bin/Release/net8.0/wwwroot/**
+            ReplicaPaints/configs/**
+            ReplicaPaints/gamedata/**
           retention-days: 14
 
   build-hider:
-    name: InsanityHider (C++ / Metamod / CS2 SDK)
+    name: ReplicaHider (C++ / Metamod / CS2 SDK)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -222,51 +222,51 @@ jobs:
         id: cache-hl2sdk
         uses: actions/cache@v4
         with:
-          path: InsanityHider/hl2sdk
+          path: ReplicaHider/hl2sdk
           key: hl2sdk-${{ env.HL2SDK_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
 
       - name: Cache metamod-source clone
         id: cache-mmsource
         uses: actions/cache@v4
         with:
-          path: InsanityHider/mmsource
+          path: ReplicaHider/mmsource
           key: mmsource-${{ env.MMSOURCE_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
 
       - name: Vendor hl2sdk (${{ env.HL2SDK_BRANCH }} branch)
         if: steps.cache-hl2sdk.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch "$HL2SDK_BRANCH" \
-            "$HL2SDK_REPO" InsanityHider/hl2sdk
+            "$HL2SDK_REPO" ReplicaHider/hl2sdk
 
       - name: Vendor metamod-source (${{ env.MMSOURCE_BRANCH }} branch)
         if: steps.cache-mmsource.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch "$MMSOURCE_BRANCH" \
-            "$MMSOURCE_REPO" InsanityHider/mmsource
+            "$MMSOURCE_REPO" ReplicaHider/mmsource
 
       - name: Ensure protoc is executable
-        run: chmod +x InsanityHider/hl2sdk/devtools/bin/linux/protoc || true
+        run: chmod +x ReplicaHider/hl2sdk/devtools/bin/linux/protoc || true
 
       - name: make
-        working-directory: InsanityHider
+        working-directory: ReplicaHider
         run: |
           make -j"$(nproc)"
 
       - name: Compute and surface .so sha256
         run: |
-          so=InsanityHider/build/insanityhider.so
+          so=ReplicaHider/build/replicahider.so
           [ -f "$so" ] || { echo ".so missing post-build" >&2; exit 1; }
           sha=$(sha256sum "$so" | awk '{print $1}')
           echo "SO sha256: $sha"
           echo "SO_SHA256=$sha" >> "$GITHUB_ENV"
 
-      - name: Upload InsanityHider artifact
+      - name: Upload ReplicaHider artifact
         uses: actions/upload-artifact@v4
         with:
-          name: InsanityHider-${{ github.sha }}
+          name: ReplicaHider-${{ github.sha }}
           path: |
-            InsanityHider/build/insanityhider.so
-            InsanityHider/insanityhider.vdf
+            ReplicaHider/build/replicahider.so
+            ReplicaHider/replicahider.vdf
           retention-days: 14
 
   package:
@@ -280,56 +280,56 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download InsanityRevive artifact
+      - name: Download Replica artifact
         uses: actions/download-artifact@v4
         with:
-          name: InsanityRevive-${{ github.sha }}
+          name: Replica-${{ github.sha }}
           path: out/cssharp
 
-      - name: Download InsanityPaints artifact
+      - name: Download ReplicaPaints artifact
         uses: actions/download-artifact@v4
         with:
-          name: InsanityPaints-${{ github.sha }}
+          name: ReplicaPaints-${{ github.sha }}
           path: out/paints
 
-      - name: Download InsanityHider artifact
+      - name: Download ReplicaHider artifact
         uses: actions/download-artifact@v4
         with:
-          name: InsanityHider-${{ github.sha }}
+          name: ReplicaHider-${{ github.sha }}
           path: out/hider
 
       - name: Stage server-relative tree
         run: |
           set -eu
           tag=${GITHUB_REF##*/}
-          root=stage/cs2-insanity-${tag}
+          root=stage/replica-${tag}
 
           # upload-artifact@v4 strips the LCD path prefix from uploads, so:
-          #   out/cssharp/bin/Release/net8.0/InsanityRevive.dll
+          #   out/cssharp/bin/Release/net8.0/Replica.dll
           #   out/cssharp/cfg/, out/cssharp/gamedata/
-          #   out/paints/bin/Release/net8.0/InsanityPaints.dll
+          #   out/paints/bin/Release/net8.0/ReplicaPaints.dll
           #   out/paints/configs/
-          #   out/hider/build/insanityhider.so
-          #   out/hider/insanityhider.vdf
+          #   out/hider/build/replicahider.so
+          #   out/hider/replicahider.vdf
 
-          # CSSharp side: csgo/addons/counterstrikesharp/plugins/InsanityRevive/
-          plug_dir=$root/csgo/addons/counterstrikesharp/plugins/InsanityRevive
+          # CSSharp side: csgo/addons/counterstrikesharp/plugins/Replica/
+          plug_dir=$root/csgo/addons/counterstrikesharp/plugins/Replica
           mkdir -p "$plug_dir"
-          cp out/cssharp/bin/Release/net8.0/InsanityRevive.dll "$plug_dir/"
-          cp out/cssharp/bin/Release/net8.0/InsanityRevive.pdb "$plug_dir/" || true
+          cp out/cssharp/bin/Release/net8.0/Replica.dll "$plug_dir/"
+          cp out/cssharp/bin/Release/net8.0/Replica.pdb "$plug_dir/" || true
           cp -r out/cssharp/cfg "$plug_dir/"
           cp -r out/cssharp/gamedata "$plug_dir/"
 
-          # CSSharp side (paints): plugins/InsanityPaints/ + configs/plugins/InsanityPaints/
+          # CSSharp side (paints): plugins/ReplicaPaints/ + configs/plugins/ReplicaPaints/
           # gamedata sits inside the plugin dir — CSSharp picks it up
           # automatically from plugins/<name>/gamedata/ (same convention
-          # as InsanityRevive). wwwroot/ is the web-panel UI; WebServer
+          # as Replica). wwwroot/ is the web-panel UI; WebServer
           # resolves it relative to ModuleDirectory at runtime.
-          paints_plug=$root/csgo/addons/counterstrikesharp/plugins/InsanityPaints
-          paints_cfg=$root/csgo/addons/counterstrikesharp/configs/plugins/InsanityPaints
+          paints_plug=$root/csgo/addons/counterstrikesharp/plugins/ReplicaPaints
+          paints_cfg=$root/csgo/addons/counterstrikesharp/configs/plugins/ReplicaPaints
           mkdir -p "$paints_plug" "$paints_cfg"
-          cp out/paints/bin/Release/net8.0/InsanityPaints.dll "$paints_plug/"
-          cp out/paints/bin/Release/net8.0/InsanityPaints.pdb "$paints_plug/" || true
+          cp out/paints/bin/Release/net8.0/ReplicaPaints.dll "$paints_plug/"
+          cp out/paints/bin/Release/net8.0/ReplicaPaints.pdb "$paints_plug/" || true
           cp -r out/paints/bin/Release/net8.0/wwwroot "$paints_plug/"
           cp -r out/paints/gamedata "$paints_plug/"
           cp -r out/paints/configs/. "$paints_cfg/"
@@ -338,24 +338,24 @@ jobs:
           mm_bin=$root/csgo/addons/metamod/bin/linuxsteamrt64
           mm_dir=$root/csgo/addons/metamod
           mkdir -p "$mm_bin" "$mm_dir"
-          cp out/hider/build/insanityhider.so "$mm_bin/"
-          cp out/hider/insanityhider.vdf "$mm_dir/"
+          cp out/hider/build/replicahider.so "$mm_bin/"
+          cp out/hider/replicahider.vdf "$mm_dir/"
 
       - name: Tarball + sha256
         id: bundle
         run: |
           tag=${GITHUB_REF##*/}
-          tar -czf "cs2-insanity-${tag}.tar.gz" -C stage "cs2-insanity-${tag}"
-          sha256sum "cs2-insanity-${tag}.tar.gz" | tee "cs2-insanity-${tag}.tar.gz.sha256"
+          tar -czf "replica-${tag}.tar.gz" -C stage "replica-${tag}"
+          sha256sum "replica-${tag}.tar.gz" | tee "replica-${tag}.tar.gz.sha256"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Upload release bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cs2-insanity-${{ github.ref_name }}
+          name: replica-${{ github.ref_name }}
           path: |
-            cs2-insanity-*.tar.gz
-            cs2-insanity-*.tar.gz.sha256
+            replica-*.tar.gz
+            replica-*.tar.gz.sha256
           retention-days: 90
 
       - name: Publish GitHub Release
@@ -368,5 +368,5 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            cs2-insanity-*.tar.gz
-            cs2-insanity-*.tar.gz.sha256
+            replica-*.tar.gz
+            replica-*.tar.gz.sha256

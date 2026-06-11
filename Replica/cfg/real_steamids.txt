@@ -1,0 +1,3 @@
+# One SteamID64 per line. Lines starting with # are comments.
+# Used only when replica_steamid_mode is "real".
+# Synthetic mode generates IDs from the reserved range 76561198_900_000_000+.

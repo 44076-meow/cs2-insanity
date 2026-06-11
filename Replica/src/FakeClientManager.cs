@@ -1,0 +1,752 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text;
+using CounterStrikeSharp.API;
+using CounterStrikeSharp.API.Core;
+
+namespace Replica;
+
+// Singleton. Owns lifecycle, the BotNavIgnore patch, the detour, the
+// per-tick fan-out, and the PersonaRegistry-driven mapchange survival.
+//
+// v0.5.1+ identity model:
+//   - Persona (in PersonaRegistry, JSON-backed) — STABLE across mapchange,
+//     plugin reload, and server restart. Carries Name + SteamId + future-
+//     phase fields. Identified by monotonic int Id.
+//   - FakeClient (in _byId) — VOLATILE, scoped to the current spawn. Holds
+//     Slot + per-bot subsystems (Simulator, Buffer, etc.). Links back to
+//     its Persona by PersonaId.
+//   - _pendingPersonaIds — FIFO of persona ids issued via Spawn(personaId)
+//     but not yet adopted. AdoptController dequeues to match the engine's
+//     bot_add → CFC PRE → OCC → CPiS arrival order.
+public sealed class FakeClientManager : IDisposable
+{
+    // Fallback name corpus. Used when AcquireForSpawn needs to mint a new
+    // persona and the registry is empty (or all personas are reserved).
+    private static readonly string[] NamePool = new[]
+    {
+        "kennyS","Magisk","ZywOo","s1mple","NiKo","device","electronic","blameF",
+        "frozen","huNter","rain","Twistzz","ropz","Brollan","Aleksib","broky",
+        "FaNg","donk","sh1ro","jks","Boombl4","Ax1Le","Hobbit","n0rb3r7",
+        "Spinx","torzsi","stavn","TeSeS","kyxsan","snappi","k1to","sjuush",
+    };
+
+    public Telemetry Telemetry { get; }
+    public Config Config { get; }
+    public ISteamIdProvider SteamIds { get; }
+    public ProcessUsercmdsDetour Detour { get; }
+    public bool DetourInstalled => Detour.Installed;
+    public PersonaRegistry Registry => _registry;
+
+    private readonly MemoryPatch _navPatch = new("BotNavIgnore");
+    private readonly PoolMmap _pool = new();
+    private readonly Dictionary<int, FakeClient> _byId = new();
+    private readonly HashSet<ulong> _usedSteamIds = new();
+    private readonly PersonaRegistry _registry;
+    // Personas issued via Spawn() but not yet adopted via AdoptController.
+    // FIFO order matches engine's bot_add processing — first push, first adopt.
+    private readonly Queue<int> _pendingPersonaIds = new();
+    // Counter for source="command" vs "engine_quota" tagging. Spawn()
+    // bumps it; AdoptController consumes one. Refused bot_adds may leak
+    // a count → next engine bot is mis-tagged. Accepted as race-free.
+    //
+    // NOTE post-v0.5.2-beta: with ReplicaHider's CFC PRE empty-FIFO
+    // SUPERCEDE, "engine_quota" should be effectively unreachable —
+    // every CreateFakeClient that lacks a CSSharp Spawn() is blocked at
+    // the C++ layer. Counter retained for race-window diagnostics.
+    private int _commandSpawnsPending;
+    private int _nextId = 1;
+    private int _tick;
+    private int _ticksSinceSummary;
+    private bool _navPatched;
+
+    // Slot → normalized name of currently connected human players.
+    // Maintained at OnClientPutInServer (humans only) and torn down at
+    // OnClientDisconnect. AcquireForSpawn unions Values with the
+    // active-persona name set when minting/picking a persona, so a bot
+    // never gets the same display name as a live human.
+    //
+    // Slot-keyed (not just a HashSet) because human names can change
+    // mid-session via Steam (rare); on disconnect we look up by slot
+    // to remove the right entry without ambiguity.
+    //
+    // KNOWN RACE (P/03 step 5+ TODO): if a human connects between our
+    // PopFifo failure (engine FIFO empty) and CSSharp's listener firing,
+    // a bot Spawn() may have already minted with the conflicting name.
+    // Mitigations available but deferred:
+    //   (a) re-check in CFC PRE (C++ side) against CServerSideClient[]
+    //       names before issuing the override
+    //   (b) accept rare collision; it self-resolves on next mapchange
+    //       (registry refreshes via AcquireForSpawn at respawn)
+    // Low impact in practice: humans don't connect mid-batch-spawn.
+    private readonly Dictionary<int, string> _humanNamesBySlot = new();
+
+    /// <summary>
+    /// Canonical compare key for name collision detection. Pipeline:
+    /// NFKC → trim → lowercase → Cyrillic→Latin transliteration →
+    /// leetspeak digit strip in letter-bearing runs. Display name
+    /// preserves original case; only the lookup key is canonical.
+    /// 'Нагибатор' / 'Nagibator' / 'NaGiBaToR' collapse to the same key;
+    /// 'Tr1ck5t3r' / 'trickster' collapse; 'killer_2010' keeps its year
+    /// suffix (digits in pure-numeric runs are NOT folded).
+    /// </summary>
+    public static string Normalize(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        var folded = s.Normalize(NormalizationForm.FormKC).Trim().ToLowerInvariant();
+        folded = TransliterateCyrillic(folded);
+        folded = StripLeetspeak(folded);
+        return folded;
+    }
+
+    private static string TransliterateCyrillic(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            sb.Append(c switch
+            {
+                'а' => "a",  'б' => "b",  'в' => "v",  'г' => "g",  'д' => "d",
+                'е' => "e",  'ё' => "e",  'ж' => "zh", 'з' => "z",  'и' => "i",
+                'й' => "y",  'к' => "k",  'л' => "l",  'м' => "m",  'н' => "n",
+                'о' => "o",  'п' => "p",  'р' => "r",  'с' => "s",  'т' => "t",
+                'у' => "u",  'ф' => "f",  'х' => "h",  'ц' => "ts", 'ч' => "ch",
+                'ш' => "sh", 'щ' => "shch", 'ъ' => "", 'ы' => "y",  'ь' => "",
+                'э' => "e",  'ю' => "yu", 'я' => "ya",
+                _ => c.ToString(),
+            });
+        }
+        return sb.ToString();
+    }
+
+    // Substitute leet digits with their letter equivalents only inside
+    // alphanumeric runs that contain at least one ASCII letter. A run is
+    // a maximal contiguous span of [a-z0-9]. This keeps numeric-suffix
+    // patterns ('killer_2010', 'lol_228') intact while collapsing
+    // letter-mixed leet ('Tr1ck5t3r' → 'trickster', 'n00b' → 'noob').
+    private static string StripLeetspeak(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        int i = 0;
+        while (i < s.Length)
+        {
+            char c = s[i];
+            bool alnum = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+            if (!alnum) { sb.Append(c); i++; continue; }
+            int j = i;
+            bool hasLetter = false;
+            while (j < s.Length)
+            {
+                char cj = s[j];
+                bool ja = (cj >= 'a' && cj <= 'z') || (cj >= '0' && cj <= '9');
+                if (!ja) break;
+                if (cj >= 'a' && cj <= 'z') hasLetter = true;
+                j++;
+            }
+            for (int k = i; k < j; k++)
+            {
+                char ch = s[k];
+                if (hasLetter && ch >= '0' && ch <= '9')
+                {
+                    ch = ch switch
+                    {
+                        '0' => 'o', '1' => 'i', '3' => 'e',
+                        '4' => 'a', '5' => 's', '7' => 't',
+                        _ => ch,
+                    };
+                }
+                sb.Append(ch);
+            }
+            i = j;
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Re-assert engine `bot_quota` to match (active + pending) bot count.
+    /// Without this, engine sees default `bot_quota=10` (or anything > our
+    /// actual count) and hammers CreateFakeClient at ~64 attempts/sec/slot
+    /// missing — ReplicaHider supercedes them all (correctness preserved),
+    /// but the retry loop wastes CPU and floods server.log with "Unable to
+    /// create bot" lines. Setting quota = actual_count satisfies the
+    /// engine's appetite and quiets the loop.
+    ///
+    /// Called after Spawn / Despawn / OnMapStart respawn batch / once per
+    /// second from Tick (defensive — engine resets quota at warmup_end and
+    /// possibly other phase transitions). Idempotent.
+    /// </summary>
+    private void EnforceBotQuota()
+    {
+        int target = _byId.Count + _pendingPersonaIds.Count;
+        Server.ExecuteCommand($"bot_quota {target}");
+    }
+
+    public IReadOnlyCollection<FakeClient> All => _byId.Values;
+
+    /// <summary>FleetManager-friendly accessors (v0.6.0+).</summary>
+    public int PendingPersonaCount => _pendingPersonaIds.Count;
+    public bool IsMapchangeInProgress => _pool.IsMapchangeInProgress();
+    /// <summary>Direct access to the shared mmap pool — used by AimHook.cs
+    /// to write override values that the C++ ReplicaHider reads on each
+    /// CCSBot::UpdateLookAngles fire.</summary>
+    public PoolMmap GetPool() => _pool;
+    public FleetManager Fleet { get; private set; } = null!;
+    public RevealController Reveal { get; private set; } = null!;
+    public BotDamagePatch DamagePatch { get; private set; } = null!;
+
+    public FakeClientManager(BasePlugin plugin, Config cfg, Telemetry telemetry)
+    {
+        Plugin = plugin;
+        Config = cfg;
+        Telemetry = telemetry;
+        SteamIds = SteamIdProviderFactory.Create(cfg, telemetry.SessionId);
+        Detour = new ProcessUsercmdsDetour();
+        _registry = new PersonaRegistry();
+        Fleet = new FleetManager(this);
+        Reveal = new RevealController(this);
+        DamagePatch = new BotDamagePatch(plugin, this);
+    }
+
+    /// <summary>The owning plugin instance — used by BotDamagePatch and any
+    /// future component that needs RegisterListener / RemoveListener.</summary>
+    public BasePlugin Plugin { get; }
+
+    /// <summary>FakeClient lookup by slot — used by RevealController.</summary>
+    public FakeClient? FindBySlot(int slot)
+        => _byId.Values.FirstOrDefault(b => b.Slot == slot);
+
+    public void OnLoad(string csVersion)
+    {
+        // PoolMmap drives the ReplicaHider C++ side.
+        if (!_pool.Open("/tmp/replica_fake_slots.bin"))
+            Log.Warn("PoolMmap not opened — bots will keep BOT-icon");
+
+        // Persistent persona registry — stable identity across server
+        // restarts, mapchanges, and plugin reloads.
+        _registry.Load();
+
+        var detourOk = Detour.Install();
+        Log.Info($"detour ProcessUsercmds: {(detourOk ? "ok" : Detour.InstallError)}");
+        Telemetry.Write("detour_install", new Dictionary<string, object?> {
+            { "target", "ProcessUsercmds" }, { "success", detourOk },
+            { "reason", detourOk ? "ok" : (Detour.InstallError ?? "unknown") },
+            { "behavior", "accounting_only" } });
+
+        bool patchOk = false; string patchReason = "disabled_in_cfg";
+        if (Config.ApplyBotNavPatch)
+        {
+            Log.Warn("BotNavIgnore patch ENABLED — version-fragile, may crash");
+            patchOk = _navPatch.Apply("BotNavIgnore", new byte[] { 0xEB });
+            _navPatched = patchOk;
+            patchReason = patchOk ? "ok" : (_navPatch.Error ?? "unknown");
+            Log.Info($"patch BotNavIgnore: {patchReason}");
+        }
+        Telemetry.Write("patch_install", new Dictionary<string, object?> {
+            { "target", "BotNavIgnore" }, { "success", patchOk }, { "reason", patchReason } });
+        Telemetry.Write("boot", new Dictionary<string, object?> {
+            { "mode", "A+" }, { "variant", "accounting_only" },
+            { "steamIdMode", SteamIds.Mode }, { "csVersion", csVersion },
+            { "personaRegistryCount", _registry.Count },
+            { "personaRegistryPath", _registry.Path } });
+
+        // BotDamagePatch INTENTIONALLY NOT INSTALLED in v0.6.0.2 path.
+        // User clarified: damage masking is the wrong axis — bots still
+        // VISUALLY engage each other (chase, shoot, miss humans), which
+        // ruins the "horde focused on you" reveal feel. Need AI-level
+        // targeting override so bots don't even SEE other bots as
+        // candidates. Investigation in progress.
+    }
+
+    public void OnUnload(bool hotReload = false)
+    {
+        if (!hotReload)
+        {
+            // Real shutdown: kick everyone, full state release.
+            foreach (var id in _byId.Keys.ToArray()) Despawn(id, "shutdown");
+        }
+        // Hot-reload path: skip Despawn — Despawn issues `kickid {slot}`
+        // via the engine command buffer (async) and clears pool[slot]=0
+        // (sync). The async kicks lag the new instance's Load by
+        // hundreds of ms, so AdoptExistingBots() runs *while engine
+        // still holds the stale slots*. Pool says unmanaged + IsBot=false
+        // (Hider flipped) → AdoptExistingBots filters them out → they
+        // float as ghosts until kickid lands. Then FleetManager.Reconcile
+        // has spawned a fresh fleet alongside.
+        // By keeping slots + pool intact across the hot-reload boundary,
+        // the new instance's AdoptExistingBots picks them up cleanly
+        // (pool.Read != 0 + IsBot=false → AdoptController) and no
+        // ghosts accumulate.
+
+        // Detour + nav patch live in libserver memory — they MUST be
+        // uninstalled here regardless of hotReload, because Load() will
+        // re-install on the next instance. Two installed detours on the
+        // same address = chaos.
+        Detour.Uninstall();
+        _navPatch.Undo();
+
+        // Defensive save — every mutation already flushes, but a final
+        // pass guards against a race where the last mutation didn't
+        // reach disk before shutdown / reload.
+        _registry.Save();
+
+        // Pool.Close just closes the OS handle; the mmap file persists.
+        // New instance reopens it on Load. Safe either way.
+        _pool.Close();
+    }
+
+    // Spawn flow:
+    //   personaId == null  → AcquireForSpawn picks a dormant persona
+    //                        (LRU + Id tie-break) or mints a new one.
+    //   personaId != null  → restore-style: explicit persona by id, used
+    //                        from OnMapStart respawn batch.
+    // Pushes persona.Name to FIFO (consumed by C++ Hider's CFC PRE
+    // override) and enqueues persona.Id into _pendingPersonaIds so the
+    // upcoming OCC/CPiS can bind the correct persona.
+    public void Spawn(FakeTeam team, int? personaId = null)
+    {
+        Persona persona;
+        if (personaId.HasValue)
+        {
+            persona = _registry.GetById(personaId.Value)
+                      ?? throw new InvalidOperationException(
+                          $"Spawn: persona id={personaId.Value} not in registry");
+            persona.LastSeenAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            _registry.Save();
+        }
+        else
+        {
+            // Reserve names that:
+            //   - currently active personas (already on a slot)
+            //   - in-flight as pending (Spawn issued, not yet adopted)
+            //   - currently connected humans (collision-free vs live players)
+            // All keys NORMALIZED via Normalize() — case-insensitive + NFKC
+            // unicode-fold so 'ZyWoO' == 'zywoo' == 'ZYWOO'. Display name
+            // preserves original case in the registry; only the lookup key
+            // is normalized.
+            var reserved = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in _registry.Active) reserved.Add(Normalize(p.Name));
+            foreach (var pid in _pendingPersonaIds)
+            {
+                var p2 = _registry.GetById(pid);
+                if (p2 != null) reserved.Add(Normalize(p2.Name));
+            }
+            foreach (var humanName in _humanNamesBySlot.Values)
+                reserved.Add(humanName);  // already normalized
+            persona = _registry.AcquireForSpawn(NamePool, reserved);
+        }
+
+        if (!_pool.PushFifo(persona.Name))
+        {
+            Log.Warn($"Spawn: FIFO full ({PoolMmap.FifoCapacity}), drop persona='{persona.Name}'");
+            return;
+        }
+        _pendingPersonaIds.Enqueue(persona.Id);
+        _commandSpawnsPending++;
+        Server.ExecuteCommand(team == FakeTeam.CT ? "bot_add ct" : "bot_add t");
+        Telemetry.Write("spawn_request", new Dictionary<string, object?> {
+            { "personaId", persona.Id }, { "name", persona.Name },
+            { "team", team.ToString() }, { "explicit", personaId.HasValue } });
+
+        // v0.5.2-beta: cap engine quota at our actual+pending count so it
+        // doesn't try to auto-fill above what we've explicitly issued.
+        // Without this, engine sees default-or-bumped bot_quota and fires
+        // CreateFakeClient ~64Hz per missing slot — ReplicaHider supercedes
+        // them all (correctness preserved), but the retry loop wastes CPU.
+        EnforceBotQuota();
+    }
+
+    public void SetHiderActive(bool active)
+    {
+        _pool.WriteActive(active);
+        Log.Info($"ReplicaHider {(active ? "enabled" : "disabled")} (pool kill-switch)");
+    }
+
+    public bool IsHiderActive() => _pool.ReadActive();
+
+    public void OnClientConnected(int slot)
+    {
+        // Pool managed/name marking is owned by C++ Hider (CFC PRE → OCC mark).
+        // This listener is a no-op for the pool path; kept registered so
+        // future per-connect logic has a plug-in point.
+    }
+
+    public void OnClientPutInServer(int slot)
+    {
+        try {
+            var c = Utilities.GetPlayerFromSlot(slot);
+            if (c == null || !c.IsValid || c.IsHLTV) return;
+
+            // Real human guard — they have a Steam-authorized SteamID even
+            // after our byte-160 flip. Bots never have one. Defends against
+            // orphaned pool[slot]=1 marks from previous bots whose Despawn
+            // didn't fire.
+            if (c.AuthorizedSteamID != null) {
+                // Track human name for AcquireForSpawn collision-avoidance.
+                // Stored normalized (NFKC + lowercase) so 'kennyS' (human)
+                // blocks bot mint of 'kennys' or 'KennyS' alike.
+                var key = Normalize(c.PlayerName ?? "");
+                if (!string.IsNullOrEmpty(key))
+                    _humanNamesBySlot[slot] = key;
+                return;
+            }
+
+            // Pool flag is the source of truth. By CPiS time, C++ Hider's
+            // CPiS post-hook has already flipped byte 160 for managed slots
+            // — c.IsBot would return False here.
+            if (_pool.Read(slot) == 0) return;
+            if (_byId.Values.Any(b => b.Slot == slot)) return;
+
+            AdoptController(c);
+        } catch (Exception ex) { Log.Error($"OnClientPutInServer slot={slot}: {ex.Message}"); }
+    }
+
+    public void OnClientDisconnect(int slot)
+    {
+        try {
+            // Drop human-name tracking unconditionally — humans should be
+            // forgotten across mapchange (their PutInServer fires fresh
+            // on the new map). Bot-managed slots aren't in this map, so
+            // a Remove() that misses is a no-op.
+            _humanNamesBySlot.Remove(slot);
+
+            // Mapchange survival (v0.5.1+): C++ Hider sets the pool's
+            // mapchange flag at IMetamodListener::OnLevelShutdown — earlier
+            // than the synthetic OnClientDisconnect cascade fired by
+            // PlayerManager::OnLevelEnd inside the StartupServer hook chain
+            // for the new map. With the flag set, this is NOT a real
+            // disconnect: the engine carries CServerSideClient through as
+            // a zombie that will be reactivated on the new map. Preserving
+            // _byId, pool[managed]/[name], and registry ActiveOnSlot lets
+            // OnMapStart snapshot and re-spawn fresh bots with matching
+            // personas.
+            if (_pool.IsMapchangeInProgress()) {
+                Telemetry.Write("disconnect_skipped_mapchange", new Dictionary<string, object?> {
+                    { "slot", slot } });
+                return;
+            }
+
+            var fc = _byId.Values.FirstOrDefault(b => b.Slot == slot);
+            if (fc != null) {
+                Despawn(fc.Id, "client_disconnect");
+            } else {
+                // Orphan cleanup: pool[slot] may have been marked in earlier
+                // session (mapchange, plugin reload, etc.) without a matching
+                // _byId entry. Without this, the next client to land on this
+                // slot — possibly a real human — would inherit the mark and
+                // get adopted as a bot. Belt-and-braces with the Authorized
+                // SteamID gate in OnClientPutInServer.
+                if (_pool.Read(slot) != 0) {
+                    _pool.Write(slot, 0);
+                    _pool.WriteName(slot, "");
+                    Log.Info($"orphan pool cleanup slot={slot}");
+                }
+            }
+        } catch (Exception ex) { Log.Error($"OnClientDisconnect slot={slot}: {ex.Message}"); }
+    }
+
+    public void AdoptExistingBots()
+    {
+        // Hot reload: bots may already have m_bFakePlayer=0 written by a
+        // previous Hider session (c.IsBot=False). Accept either signal —
+        // the engine's bot bit (live state) OR our pool mark (persisted).
+        foreach (var c in Utilities.GetPlayers())
+        {
+            if (c == null || !c.IsValid || c.IsHLTV) continue;
+            if (!c.IsBot && _pool.Read(c.Slot) == 0) continue;
+            if (_byId.Values.Any(b => b.Slot == c.Slot)) continue;
+            // Make sure pool reflects management before AdoptController.
+            if (_pool.Read(c.Slot) == 0) _pool.Write(c.Slot, 1);
+            AdoptController(c);
+        }
+    }
+
+    private void AdoptController(CCSPlayerController ctrl)
+    {
+        var slot = ctrl.Slot;
+        var poolName = _pool.ReadName(slot);
+
+        // Resolve persona:
+        //  (1) If we have a pending persona id from a recent Spawn() call,
+        //      dequeue it. The pool name SHOULD match persona.Name — log if not.
+        //  (2) Else (engine_quota path), look up registry by pool name —
+        //      a previous-session persona with this name may already exist.
+        //  (3) Else mint via AcquireForSpawn using poolName as preferred.
+        Persona? persona = null;
+        if (_pendingPersonaIds.Count > 0)
+        {
+            var pid = _pendingPersonaIds.Dequeue();
+            persona = _registry.GetById(pid);
+            if (persona != null && !string.IsNullOrEmpty(poolName)
+                && !string.Equals(poolName, persona.Name, StringComparison.Ordinal))
+            {
+                Log.Warn($"AdoptController: pool name '{poolName}' != pending persona " +
+                         $"'{persona.Name}' (id={persona.Id}, slot={slot}) — using persona");
+            }
+        }
+        if (persona == null && !string.IsNullOrEmpty(poolName))
+        {
+            persona = _registry.All.FirstOrDefault(p =>
+                p.Name == poolName && !p.IsActive);
+        }
+        if (persona == null)
+        {
+            // Engine_quota path with no prior persona record. Mint via
+            // registry — preferring the name C++ Hider chose from its
+            // fallback roster (visible in pool name).
+            var reserved = new HashSet<string>(
+                _registry.Active.Select(p => p.Name), StringComparer.Ordinal);
+            var preferred = !string.IsNullOrEmpty(poolName)
+                ? new[] { poolName }
+                : NamePool;
+            persona = _registry.AcquireForSpawn(preferred, reserved);
+        }
+
+        // Persona's stable SteamId — synthesize on first bind, persist.
+        if (persona.SteamId64 == 0)
+        {
+            persona.SteamId64 = SteamIds.Generate(slot);
+            _registry.Save();
+        }
+
+        // Bind to slot in registry (also updates LastSeenAt).
+        _registry.BindToSlot(persona.Id, slot);
+
+        // Build live FakeClient — volatile slot-bound state.
+        var id = _nextId++;
+        var team = (ctrl.TeamNum == 3 ? FakeTeam.CT : FakeTeam.T);
+        var profile = BotProfile.Generate(persona.SteamId64);
+        var source = _commandSpawnsPending > 0 ? "command" : "engine_quota";
+        if (source == "command") _commandSpawnsPending--;
+
+        var fc = new FakeClient(id, persona.Id, persona.Name, persona.SteamId64, team, profile)
+            { Slot = slot, Alive = true };
+        _byId[id] = fc;
+        _usedSteamIds.Add(persona.SteamId64);
+        // Publish persona name into pool so C++ Hider's CPiS safety-net
+        // can also re-overwrite engine-side m_Name on mapchange-rebuilt
+        // CServerSideClient instances (defensive — primary path is CFC PRE).
+        _pool.WriteName(slot, persona.Name);
+        fc.OverwriteIdentityOnController(ctrl);
+
+        // Engine re-stamps name from bot_names.txt during post-spawn —
+        // re-write at +4/+16 ticks (name-only) to outlast that.
+        var capFc = fc; var capSlot = fc.Slot;
+        Server.RunOnTick(Server.TickCount + 4,  () => ReassertIdentity(capFc, capSlot));
+        Server.RunOnTick(Server.TickCount + 16, () => ReassertIdentity(capFc, capSlot));
+
+        Telemetry.Write("fake_spawn", new Dictionary<string, object?> {
+            { "botId", id }, { "personaId", persona.Id },
+            { "name", persona.Name }, { "steamId", persona.SteamId64.ToString() },
+            { "team", team.ToString() }, { "slot", fc.Slot },
+            { "profileId", profile.Seed.ToString("x16") },
+            { "mode", SteamIds.Mode }, { "source", source },
+            { "registryReuse", persona.LastSeenAt != persona.CreatedAt } });
+    }
+
+    public void Despawn(int id, string reason)
+    {
+        if (!_byId.TryGetValue(id, out var fc)) return;
+        _byId.Remove(id);
+        _registry.ReleaseSlot(fc.PersonaId);
+        _pool.Write(fc.Slot, 0);  // un-mark so future engine clients aren't accidentally hidden
+        _pool.WriteName(fc.Slot, "");
+        fc.Aim.Disarm(_pool);     // release per-slot aim override if armed
+        Telemetry.Write("fake_despawn", new Dictionary<string, object?> {
+            { "botId", id }, { "personaId", fc.PersonaId }, { "reason", reason },
+            { "name", fc.Name }, { "slot", fc.Slot } });
+        try {
+            // Kick the live engine client. `kickid <slot>` works regardless
+            // of m_bFakePlayer state, so it handles the Hider-flipped case
+            // (where `ctrl.IsBot` returns false for our own bots, which the
+            // previous `bot_kick <Name>` path mistakenly gated on). Without
+            // this, the engine keeps the slot occupied even after pool[managed]=0
+            // is written — leading to "phantom team members" in the
+            // scoreboard count (e.g. `5/15` after several
+            // `replica_kick_bots` + `bot_kick` + `replica_fleet_size N` cycles).
+            var ctrl = Utilities.GetPlayerFromSlot(fc.Slot);
+            if (ctrl != null && ctrl.IsValid)
+                Server.ExecuteCommand($"kickid {fc.Slot}");
+        } catch { }
+        // Quota tracks (active+pending) — Despawn drops one, re-assert.
+        EnforceBotQuota();
+    }
+
+    public int DespawnAll(string reason)
+    {
+        var n = _byId.Count;
+        foreach (var id in _byId.Keys.ToArray()) Despawn(id, reason);
+        // Drop in-flight pending personas too — without this, names that
+        // were pushed to the C++ FIFO but not yet adopted will land as
+        // fresh _byId entries on the next CFC PRE / OCC dance and the
+        // fleet appears to "respawn" right after a kick. The pool FIFO
+        // itself is C++-consumed (SPSC contract — CSSharp must not write
+        // its tail), so we leave that pipeline alone; those orphan FIFO
+        // names will be popped + adopted, but with _pendingPersonaIds
+        // empty they take the engine_quota path and become regular
+        // pickups. Combined with FleetSize=0 (set by replica_kick_bots)
+        // they're shrunk on the next Reconcile.
+        if (_pendingPersonaIds.Count > 0)
+        {
+            Telemetry.Write("pending_clear", new Dictionary<string, object?> {
+                { "reason", reason }, { "count", _pendingPersonaIds.Count } });
+            _pendingPersonaIds.Clear();
+        }
+        EnforceBotQuota();
+        return n;
+    }
+
+    public void OnMapStart()
+    {
+        try {
+            // (1) Snapshot active bots BEFORE clearing. _byId entries were
+            //     preserved through the synthetic disconnect cascade because
+            //     OnClientDisconnect skipped Despawn while pool.IsMapchangeInProgress.
+            var snapshot = _byId.Values
+                .Select(b => new RespawnEntry(b.PersonaId, b.Team))
+                .ToList();
+
+            // (2) Snapshot zombie slots from pool managed[] BEFORE wipe.
+            //     These are the slots whose CServerSideClient instances are
+            //     stuck in CHANGELEVEL → CONNECTED state on the new map.
+            //     Utilities.GetPlayers() doesn't surface them (no CCSPlayer
+            //     Controller for non-active clients), so we MUST use the pool.
+            var zombieSlots = new List<int>();
+            for (int slot = 0; slot < PoolMmap.Slots; slot++) {
+                if (_pool.Read(slot) != 0) zombieSlots.Add(slot);
+            }
+
+            // (3) Wipe in-memory state — slots will be re-bound on adopt.
+            _byId.Clear();
+            _registry.ClearAllActiveSlots();
+            _pendingPersonaIds.Clear();
+            _humanNamesBySlot.Clear();  // humans re-fire OnClientPutInServer on new map
+
+            // Mid-mapchange engine state has bot_quota at default (10) or
+            // whatever the new map's gamemode_*.cfg sets. Reset to 0 BEFORE
+            // we re-issue Spawn() — the supercede in CFC PRE will block any
+            // race attempt the engine makes between here and the respawn
+            // batch firing 8 ticks later.
+            Server.ExecuteCommand("bot_quota 0");
+
+            // (4) Wipe pool managed[] + names — old slot indices are about
+            //     to be invalid. CFC PRE / OCC will re-mark fresh slots when
+            //     respawned bots arrive.
+            foreach (var slot in zombieSlots) {
+                _pool.Write(slot, 0);
+                _pool.WriteName(slot, "");
+            }
+
+            // (5) Clear mapchange flag — synthetic disconnect cascade is done.
+            //     Any further OnClientDisconnect goes through real-path.
+            _pool.WriteMapchangeFlag(false);
+
+            // (6) Kick zombie engine clients by slot id. For fake-clients,
+            //     userid == slot; engine ignores invalid slots without error.
+            int kicks = 0;
+            foreach (var slot in zombieSlots) {
+                try {
+                    Server.ExecuteCommand($"kickid {slot}");
+                    kicks++;
+                } catch (Exception ex) {
+                    Log.Debug($"OnMapStart kickid slot={slot}: {ex.Message}");
+                }
+            }
+
+            Telemetry.Write("mapchange_respawn", new Dictionary<string, object?> {
+                { "snapshotCount", snapshot.Count }, { "kicks", kicks },
+                { "zombieSlots", string.Join(",", zombieSlots) } });
+
+            // (7) Schedule respawn AFTER kicks settle. Engine processes
+            //     kickid in current tick window; spawn a few ticks later
+            //     so engine slots are free.
+            var tickFire = Server.TickCount + 8;
+            foreach (var s in snapshot) {
+                var capPid = s.PersonaId; var capTeam = s.Team;
+                Server.RunOnTick(tickFire, () => {
+                    try { Spawn(capTeam, capPid); }
+                    catch (Exception ex) {
+                        Log.Error($"OnMapStart respawn pid={capPid}: {ex.Message}");
+                    }
+                });
+            }
+
+            // (8) Mark fleet ready — Reconcile() will now run from Tick at 1Hz.
+            //     If snapshot.Count < FleetSize, reconcile will top up; if >,
+            //     it will trim. On boot (snapshot empty), reconcile spawns
+            //     up to FleetSize from a clean slate.
+            Fleet.OnMapStartComplete();
+        } catch (Exception ex) { Log.Error($"OnMapStart: {ex.Message}"); }
+    }
+
+    private readonly record struct RespawnEntry(int PersonaId, FakeTeam Team);
+
+    public void OnTick()
+    {
+        _tick++; _ticksSinceSummary++;
+        Fleet.OnTick();
+        Reveal.OnTick();
+        foreach (var fc in _byId.Values)
+        {
+            CCSPlayerController? c = null;
+            try { c = Utilities.GetPlayerFromSlot(fc.Slot); } catch { }
+            if (c == null || !c.IsValid) { fc.Simulator.Tick(); fc.Aim.Disarm(_pool); continue; }
+            fc.Tick(_tick, c, _pool);
+            EmitPerTickTelemetry(fc);
+        }
+        if (_ticksSinceSummary < 64) return;
+        _ticksSinceSummary = 0;
+        foreach (var fc in _byId.Values)
+        {
+            var (avg, loss) = fc.DrainSummary();
+            Telemetry.Write("net_summary", new Dictionary<string, object?> {
+                { "botId", fc.Id }, { "avgPingMs", avg },
+                { "jitterMs", fc.Network.JitterRangeMs }, { "lossRate60s", loss } });
+        }
+
+        // 1-second persistent bot_quota re-assert. Engine resets quota at
+        // warmup_end and round-restart; without periodic enforcement it
+        // creeps up to default (10) and triggers the supercede CPU-loop
+        // (320+ /sec). Cheap (one ExecuteCommand per second).
+        EnforceBotQuota();
+    }
+
+    private void EmitPerTickTelemetry(FakeClient fc)
+    {
+        if (fc.Simulator.SpikeStartedThisTick)
+            Telemetry.Write("net_spike", new Dictionary<string, object?> {
+                { "botId", fc.Id }, { "peakMs", fc.Simulator.LastSpikePeakMs },
+                { "durationMs", fc.Simulator.LastSpikeDurationMs }, { "tick", _tick } });
+        if (fc.Simulator.LossThisTick)
+            Telemetry.Write("net_loss", new Dictionary<string, object?>
+                { { "botId", fc.Id }, { "tick", _tick } });
+        var bufLoss = fc.Buffer.LastDropReasonLoss;
+        var bufOver = fc.Buffer.LastDropReasonOverflow;
+        if (bufLoss > 0) Telemetry.Write("buffer_drop", new Dictionary<string, object?>
+            { { "botId", fc.Id }, { "reason", "loss" }, { "tick", _tick } });
+        if (bufOver > 0) Telemetry.Write("buffer_drop", new Dictionary<string, object?>
+            { { "botId", fc.Id }, { "reason", "overflow" }, { "tick", _tick } });
+        if (bufLoss > 0 || bufOver > 0) fc.Buffer.Clear();
+    }
+
+    private void ReassertIdentity(FakeClient fc, int slot)
+    {
+        if (!_byId.ContainsKey(fc.Id)) return;
+        if (fc.Slot != slot) return;
+        try
+        {
+            var c = Utilities.GetPlayerFromSlot(slot);
+            if (c == null || !c.IsValid) return;
+            // c.IsBot is now False for managed bots (C++ Hider already wrote
+            // m_bFakePlayer=0); pool flag is the trustworthy "managed bot"
+            // signal. Same gate fix as OnClientPutInServer.
+            if (_pool.Read(slot) == 0 && !c.IsBot) return;
+            if (string.Equals(c.PlayerName, fc.Name, StringComparison.Ordinal)) return;
+            fc.OverwriteNameOnController(c); // name-only — see FakeClient.cs
+        }
+        catch (Exception ex) { Log.Debug($"reassert slot={slot}: {ex.Message}"); }
+    }
+
+    public void Dispose() { OnUnload(); }
+}

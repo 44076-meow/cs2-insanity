@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ReplicaPaints</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="login" class="login hidden">
+    <div class="login-card">
+      <h1>ReplicaPaints</h1>
+      <p>Bearer token from <code>settings.json</code>:</p>
+      <input id="token-input" type="password" autocomplete="off" spellcheck="false" />
+      <button id="login-btn">Unlock</button>
+      <div id="login-err" class="err"></div>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <header>
+      <div class="brand">ReplicaPaints</div>
+      <nav>
+        <button class="tab active" data-tab="players">Players</button>
+        <button class="tab" data-tab="bots">Bots</button>
+        <button class="tab" data-tab="catalog">Catalog</button>
+      </nav>
+      <div class="actions">
+        <span id="status-pill" class="pill">…</span>
+        <button id="reload-btn" title="css_replica_paints_reload">Reload</button>
+        <button id="logout-btn" title="Forget token in this browser">Logout</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="tab-players" class="tab-panel active">
+        <aside class="sidebar">
+          <h2>Online</h2>
+          <ul id="online-list" class="roster"></ul>
+          <h2>Stored loadouts</h2>
+          <ul id="stored-list" class="roster"></ul>
+          <div class="manual-entry">
+            <input id="manual-steamid" placeholder="SteamID64…" />
+            <button id="manual-pick-btn">Open</button>
+          </div>
+        </aside>
+        <div class="editor-area">
+          <div id="editor-empty" class="placeholder">Pick a player on the left.</div>
+          <div id="editor" class="hidden">
+            <div class="editor-header">
+              <h2 id="editor-title">…</h2>
+              <div class="editor-meta">
+                <span id="editor-subtitle"></span>
+                <button id="editor-delete">Delete loadout</button>
+              </div>
+            </div>
+
+            <div class="layouts-bar">
+              <label class="ll">Layout</label>
+              <select id="layout-select"></select>
+              <button id="layout-rename" class="ghost" title="Rename current layout">Rename</button>
+              <button id="layout-new"    class="ghost" title="Save current state as a new named layout">+ New</button>
+              <button id="layout-delete" class="ghost danger" title="Delete the current layout">× Delete</button>
+            </div>
+
+            <div class="editor-grid">
+              <div class="editor-col">
+                <h3>Weapons</h3>
+                <div id="weapons-list" class="slot-list"></div>
+                <button id="weapons-add" class="ghost">+ Add weapon</button>
+              </div>
+
+              <div class="editor-col">
+                <h3>Knives</h3>
+                <div class="dual">
+                  <div>
+                    <label>T side</label>
+                    <button class="slot-btn" data-slot="knife_t" id="slot-knife-t">—</button>
+                    <button class="slot-btn paint" data-slot="knife_t_paint" id="slot-knife-t-paint">paint —</button>
+                  </div>
+                  <div>
+                    <label>CT side</label>
+                    <button class="slot-btn" data-slot="knife_ct" id="slot-knife-ct">—</button>
+                    <button class="slot-btn paint" data-slot="knife_ct_paint" id="slot-knife-ct-paint">paint —</button>
+                  </div>
+                </div>
+
+                <h3>Gloves</h3>
+                <div class="dual">
+                  <div>
+                    <label>T side</label>
+                    <button class="slot-btn" data-slot="gloves_t" id="slot-gloves-t">—</button>
+                  </div>
+                  <div>
+                    <label>CT side</label>
+                    <button class="slot-btn" data-slot="gloves_ct" id="slot-gloves-ct">—</button>
+                  </div>
+                </div>
+
+                <h3>Agent</h3>
+                <div class="dual">
+                  <div>
+                    <label>T side</label>
+                    <button class="slot-btn" data-slot="agent_t" id="slot-agent-t">—</button>
+                  </div>
+                  <div>
+                    <label>CT side</label>
+                    <button class="slot-btn" data-slot="agent_ct" id="slot-agent-ct">—</button>
+                  </div>
+                </div>
+
+                <h3>Music kit</h3>
+                <button class="slot-btn full" data-slot="music_kit" id="slot-music-kit">—</button>
+                <p class="muted music-kit-caveat">
+                  Display only — the MVP screen shows the kit name, but no anthem plays
+                  unless the listener owns that kit on Steam themselves. Bots are
+                  silent regardless (client-side mixer is Steam-gated).
+                </p>
+
+                <h3>Pin</h3>
+                <div class="dual">
+                  <div>
+                    <label>T side</label>
+                    <button class="slot-btn" data-slot="pin_t" id="slot-pin-t">—</button>
+                  </div>
+                  <div>
+                    <label>CT side</label>
+                    <button class="slot-btn" data-slot="pin_ct" id="slot-pin-ct">—</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="editor-foot sticky">
+              <button id="editor-save" class="primary">Save & reload</button>
+              <button id="randomize-seeds" class="ghost" title="Roll a fresh seed for every weapon + glove (0–999)">🎲 Randomize seeds</button>
+              <span id="save-flash" class="flash"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-bots" class="tab-panel">
+        <h2>Bots — derived loadouts</h2>
+        <p class="muted">Each managed bot's skin set is a SHA-256 hash of its persona name.
+          The list below is computed live by the plugin — what you see is what's getting
+          applied next spawn.</p>
+        <div id="bots-grid" class="bots-grid"></div>
+      </section>
+
+      <section id="tab-catalog" class="tab-panel">
+        <h2>Catalog browser</h2>
+        <div class="catalog-filters">
+          <input id="catalog-search" placeholder="Search by name…" />
+          <select id="catalog-weapon">
+            <option value="">All weapons</option>
+          </select>
+        </div>
+        <div id="catalog-grid" class="catalog-grid"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Skin picker modal — opened on every "pick paint" / "pick knife" / "pick gloves" click. -->
+  <div id="picker" class="modal hidden">
+    <div class="modal-card">
+      <header>
+        <h3 id="picker-title">Pick…</h3>
+        <input id="picker-search" placeholder="Filter…" />
+        <button id="picker-close">×</button>
+      </header>
+      <div id="picker-grid" class="picker-grid"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
