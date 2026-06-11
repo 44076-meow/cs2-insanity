@@ -13,7 +13,7 @@ namespace InsanityRevive;
 /// <summary>
 /// Reveal Finale state machine (P/12, v0.7.0-beta).
 ///
-/// Triggered by `!reveal` (admin chat) or `insanity_reveal` (rcon). NO
+/// Triggered by `!reveal` (admin chat) or `replica_reveal` (rcon). NO
 /// confirmation prompt, re-runnable indefinitely. Re-trigger during an
 /// active reveal calls <see cref="CleanupReveal"/> first, then enters
 /// Stage 0 fresh.
@@ -40,7 +40,7 @@ namespace InsanityRevive;
 ///
 /// Stage 4 (APOCALYPSE, v0.7.0-beta) is a manual-only branch: it cannot be
 /// entered automatically from the linear 0→3 progression — only via
-/// <c>!reveal_apocalypse</c> / <c>insanity_reveal_apocalypse</c> while a
+/// <c>!reveal_apocalypse</c> / <c>replica_reveal_apocalypse</c> while a
 /// Stage 1/2/3 reveal is already active. Design contract:
 ///   - <c>BotDamagePatch</c> stays on (carriers must remain killable so
 ///     humans can pre-emptively pop them before detonation).
@@ -296,7 +296,7 @@ public sealed class RevealController
         }
     }
 
-    /// <summary>Admin entry. !reveal or insanity_reveal lands here.</summary>
+    /// <summary>Admin entry. !reveal or replica_reveal lands here.</summary>
     public void Start()
     {
         if (Stage != RevealStage.Idle)
@@ -313,7 +313,7 @@ public sealed class RevealController
         {
             Log.Info("Reveal: fleet empty — auto-restoring (clearing override) and retrying in 10s");
             _mgr.Config.SetFleetSizeOverride(null);
-            Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] fleet empty — restoring, retrying reveal in 10s");
+            Server.PrintToChatAll($" {ChatColors.DarkRed}[REPLICÁ] fleet empty — restoring, retrying reveal in 10s");
             ScheduleStageWork(64 * 10, () => {
                 if (Stage == RevealStage.Idle && _mgr.All.Count > 0)
                     EnterStage0();
@@ -349,7 +349,7 @@ public sealed class RevealController
         if (_humansAtStart == 0)
         {
             Log.Warn("Reveal Stage 0: no humans on server — aborting before any setup");
-            Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] reveal aborted — no humans on server");
+            Server.PrintToChatAll($" {ChatColors.DarkRed}[REPLICÁ] reveal aborted — no humans on server");
             CleanupReveal();
             return;
         }
@@ -431,7 +431,7 @@ public sealed class RevealController
         // an empty fleet, then grinds through 2-2.5 minutes of sterile
         // Stage 1 → 2 → 3 before the natural timer chain expires —
         // hitting humans with TWO useless mp_restartgame commands and
-        // "[INSANITY] STAGE 2 / HELL MODE" chat spam with no visible swarm.
+        // "[REPLICÁ] STAGE 2 / HELL MODE" chat spam with no visible swarm.
         if (_mgr.All.Count == 0) {
             Log.Warn("EnterStage1: fleet empty — aborting reveal (Stage 0→1 raced bot_kick)");
             CleanupReveal();
@@ -459,7 +459,7 @@ public sealed class RevealController
             { "prevTeammatesAreEnemies", _prevTeammatesAreEnemies },
             { "prevSolidTeammates", _prevSolidTeammates } });
 
-        Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] reveal initiated");
+        Server.PrintToChatAll($" {ChatColors.DarkRed}[REPLICÁ] reveal initiated");
 
         // (3) Determine bot target team = opposite of human's team. If
         //     no humans, default to T (2) — bots will be on T, no humans
@@ -763,7 +763,7 @@ public sealed class RevealController
         _mgr.Telemetry.Write("reveal_stage_enter", new Dictionary<string, object?> {
             { "stage", "Stage2" }, { "kills", _botsKilledThisReveal } });
 
-        Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] STAGE 2 — AIM ASSIST ENGAGED");
+        Server.PrintToChatAll($" {ChatColors.DarkRed}[REPLICÁ] STAGE 2 — AIM ASSIST ENGAGED");
 
         // Round restart for clean weapon state. mp_restartgame N takes
         // N seconds to actually fire — wait 4s (1s for restart command +
@@ -872,7 +872,7 @@ public sealed class RevealController
             { "stage", "Stage3" }, { "name", "HELL_MODE" },
             { "killsBeforeEntry", _botsKilledThisReveal } });
 
-        Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] HELL MODE — RESPAWNS ENABLED");
+        Server.PrintToChatAll($" {ChatColors.DarkRed}[REPLICÁ] HELL MODE — RESPAWNS ENABLED");
         // Bots already on m249 from Stage 2; armor stays from Stage 1.
         // Tick3 will reapply both on respawn via re-call to ApplyM249Rush.
     }
@@ -891,7 +891,7 @@ public sealed class RevealController
     // Stage 4 — APOCALYPSE (C4 suicide bots)
     // ──────────────────────────────────────────────────────────────────
     //
-    // Manual-only trigger: !reveal_apocalypse / insanity_reveal_apocalypse.
+    // Manual-only trigger: !reveal_apocalypse / replica_reveal_apocalypse.
     // Per session-plan 2026-05-08: usable from Stage 1/2/3 (not Idle).
     // Calling during an already-active Stage 4 is a no-op (idempotent).
     //
@@ -944,7 +944,7 @@ public sealed class RevealController
         // Fresh sound-resolution cycle — bootstrap probe runs below.
         _stage4WorkingBeep = null;
 
-        Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] APOCALYPSE — C4 RAIN");
+        Server.PrintToChatAll($" {ChatColors.DarkRed}[REPLICÁ] APOCALYPSE — C4 RAIN");
 
         // Install damage filter so the explosions don't fry our own swarm
         // alongside the humans. Idempotent — Install no-ops if already on.
@@ -1186,7 +1186,7 @@ public sealed class RevealController
             Log.Warn($"Stage4 beep: ALL {candidates.Length} candidate soundevents failed on bootstrap probe (incl. generic fallback). " +
                      $"Stage 4 will run silent — update RevealController.cs candidates list.");
             Server.PrintToChatAll(
-                $" {ChatColors.DarkRed}[INSANITY] {ChatColors.Default}stage4: beep audio unavailable this round — escalating-tension cue muted");
+                $" {ChatColors.DarkRed}[REPLICÁ] {ChatColors.Default}stage4: beep audio unavailable this round — escalating-tension cue muted");
         }
         else if (_stage4WorkingBeep == "Buttons.snd9")
         {
@@ -1312,7 +1312,7 @@ public sealed class RevealController
         _mgr.Telemetry.Write("reveal_stage_enter", new Dictionary<string, object?> {
             { "stage", "End" }, { "totalKills", _botsKilledThisReveal } });
 
-        Server.PrintToChatAll($" {ChatColors.DarkRed}[INSANITY] reveal complete");
+        Server.PrintToChatAll($" {ChatColors.DarkRed}[REPLICÁ] reveal complete");
         CleanupReveal();
 
         if (_mgr.Config.RevealAutoRestart) {

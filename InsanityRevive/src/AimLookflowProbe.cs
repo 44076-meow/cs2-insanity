@@ -48,9 +48,9 @@
 //
 // Workflow (kept for regression — re-run after engine updates that may
 // reshuffle the smoother):
-//   insanity_probe_lookflow <slot> [ticks=256]   arm capture; dump after
+//   replica_probe_lookflow <slot> [ticks=256]   arm capture; dump after
 //                                                <ticks> game ticks
-//   insanity_probe_lookflow stop                 abort early, dump partial
+//   replica_probe_lookflow stop                 abort early, dump partial
 //
 // Output is verbose but capped. Only ticks with at least one non-zero
 // delta log (idle bot won't spam).

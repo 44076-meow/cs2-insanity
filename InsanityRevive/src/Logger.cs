@@ -25,7 +25,7 @@ public static class Log
             LogLevel.Error => "EROR",
             _ => "????",
         };
-        Server.PrintToConsole($"[Insanity][{tag}] {msg}\n");
+        Server.PrintToConsole($"[Replica][{tag}] {msg}\n");
     }
 
     public static void SetLevel(string s)

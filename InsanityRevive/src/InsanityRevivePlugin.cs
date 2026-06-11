@@ -87,7 +87,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
 
         // AimDiag: capture the bot's view-angle snapshots at fire time and
         // diff against actual bullet trajectory at impact. Off by default;
-        // arm via insanity_aim_diag.
+        // arm via replica_aim_diag.
         RegisterEventHandler<EventWeaponFire>((@event, info) => {
             try { AimDiag.OnWeaponFire(@event.Userid); }
             catch (Exception ex) { Log.Debug($"AimDiag.OnWeaponFire: {ex.Message}"); }
@@ -175,7 +175,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
         // doesn't tell FleetManager — Reconcile() repopulates within ~1s.
         // Intercept the bare form, drain the fleet through the plugin,
         // and pin FleetSize=0 so Reconcile holds the empty state until
-        // the user restores it via `insanity_fleet_size N`. Targeted
+        // the user restores it via `replica_fleet_size N`. Targeted
         // form (`bot_kick <name>`) is left alone — that's how we kick
         // individual bots ourselves and how admins surgically drop one.
         AddCommandListener("bot_kick", (caller, info) => {
@@ -201,7 +201,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
             try {
                 var n = _manager.DespawnAll("vanilla_bot_kick");
                 _manager.Config.SetFleetSizeOverride(0);
-                Log.Info($"vanilla bot_kick intercepted: drained {n}, fleet pinned to 0 — `insanity_fleet_size N` to restore");
+                Log.Info($"vanilla bot_kick intercepted: drained {n}, fleet pinned to 0 — `replica_fleet_size N` to restore");
             } catch (Exception ex) { Log.Error($"bot_kick listener: {ex.Message}"); }
             return HookResult.Continue;
         }, HookMode.Pre);
@@ -297,12 +297,12 @@ public sealed class InsanityRevivePlugin : BasePlugin
         }
     }
 
-    [ConsoleCommand("insanity_spawn_bots", "Spawn N fake bots; team = ct|t|split (default split)")]
+    [ConsoleCommand("replica_spawn_bots", "Spawn N fake bots; team = ct|t|split (default split)")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "[count] [ct|t|split]")]
     public void OnSpawnBots(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         var n = _config?.DefaultBotCount ?? 5;
         if (info.ArgCount > 1 && int.TryParse(info.GetArg(1), out var parsed)) n = Math.Clamp(parsed, 1, 32);
 
@@ -320,15 +320,15 @@ public sealed class InsanityRevivePlugin : BasePlugin
             _manager.Spawn(team);
         }
         var label = forced.HasValue ? forced.Value.ToString() : "split CT/T";
-        info.ReplyToCommand($"[Insanity] queued {n} bot_add → {label}; see scoreboard in ~1s");
+        info.ReplyToCommand($"[Replica] queued {n} bot_add → {label}; see scoreboard in ~1s");
     }
 
-    [ConsoleCommand("insanity_kick_bots", "Kick all fake bots; pins FleetSize=0 unless 'respawn' arg given")]
+    [ConsoleCommand("replica_kick_bots", "Kick all fake bots; pins FleetSize=0 unless 'respawn' arg given")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "[respawn]")]
     public void OnKickBots(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         bool respawn = info.ArgCount > 1
             && info.GetArg(1).Trim().Equals("respawn", StringComparison.OrdinalIgnoreCase);
         var n = _manager.DespawnAll(respawn ? "admin_kick_respawn" : "admin_kick_drain");
@@ -337,60 +337,60 @@ public sealed class InsanityRevivePlugin : BasePlugin
             // Pin to 0 so FleetManager.Reconcile holds the empty state.
             // Without this the fleet repopulates within 1 second.
             _manager.Config.SetFleetSizeOverride(0);
-            info.ReplyToCommand($"[Insanity] kicked {n} fake bots; fleet drained — use `insanity_fleet_size N` to restore");
+            info.ReplyToCommand($"[Replica] kicked {n} fake bots; fleet drained — use `replica_fleet_size N` to restore");
         }
         else
         {
             // `respawn` is an explicit user intent to "return to normal size".
-            // If a prior drain (vanilla bot_kick or `insanity_kick_bots`) left
+            // If a prior drain (vanilla bot_kick or `replica_kick_bots`) left
             // override pinned to 0, FleetSize would still report 0 and the
             // fleet wouldn't repopulate — message would lie. Clear override
             // first so the cfg-file FleetSize takes over.
             _manager.Config.SetFleetSizeOverride(null);
-            info.ReplyToCommand($"[Insanity] kicked {n} fake bots; fleet will respawn (size={_manager.Config.FleetSize})");
+            info.ReplyToCommand($"[Replica] kicked {n} fake bots; fleet will respawn (size={_manager.Config.FleetSize})");
         }
     }
 
-    [ConsoleCommand("insanity_fleet_size", "Set FleetSize override at runtime (0..16); 'default' clears override")]
+    [ConsoleCommand("replica_fleet_size", "Set FleetSize override at runtime (0..16); 'default' clears override")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "<0..16|default>")]
     public void OnFleetSize(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         if (info.ArgCount < 2)
         {
             var ovr = _manager.Config.HasFleetSizeOverride
                 ? _manager.Config.FleetSizeOverride!.Value.ToString()
                 : "(none — using cfg)";
-            info.ReplyToCommand($"[Insanity] fleet size={_manager.Config.FleetSize} override={ovr} active={_manager.All.Count} pending={_manager.PendingPersonaCount}");
+            info.ReplyToCommand($"[Replica] fleet size={_manager.Config.FleetSize} override={ovr} active={_manager.All.Count} pending={_manager.PendingPersonaCount}");
             return;
         }
         var arg = info.GetArg(1).Trim();
         if (arg.Equals("default", StringComparison.OrdinalIgnoreCase) || arg == "-1")
         {
             _manager.Config.SetFleetSizeOverride(null);
-            info.ReplyToCommand($"[Insanity] fleet size override cleared — using cfg ({_manager.Config.FleetSize})");
+            info.ReplyToCommand($"[Replica] fleet size override cleared — using cfg ({_manager.Config.FleetSize})");
             return;
         }
         if (!int.TryParse(arg, out var n))
         {
-            info.ReplyToCommand($"[Insanity] usage: insanity_fleet_size <0..16|default>");
+            info.ReplyToCommand($"[Replica] usage: replica_fleet_size <0..16|default>");
             return;
         }
         var clamped = Math.Clamp(n, 0, 16);
         _manager.Config.SetFleetSizeOverride(clamped);
-        info.ReplyToCommand($"[Insanity] fleet size override = {clamped} (was active={_manager.All.Count} pending={_manager.PendingPersonaCount})");
+        info.ReplyToCommand($"[Replica] fleet size override = {clamped} (was active={_manager.All.Count} pending={_manager.PendingPersonaCount})");
     }
 
-    [ConsoleCommand("insanity_status", "Print fake-client manager status")]
+    [ConsoleCommand("replica_status", "Print fake-client manager status")]
     [RequiresPermissions("@css/generic")]
     public void OnStatus(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         var ovrLabel = _manager.Config.HasFleetSizeOverride
             ? $" (override={_manager.Config.FleetSizeOverride})"
             : "";
-        info.ReplyToCommand($"[Insanity] bots={_manager.All.Count} pending={_manager.PendingPersonaCount} " +
+        info.ReplyToCommand($"[Replica] bots={_manager.All.Count} pending={_manager.PendingPersonaCount} " +
                             $"target={_manager.Config.FleetSize}{ovrLabel} " +
                             $"detour={_manager.DetourInstalled} " +
                             $"steamIdMode={_manager.SteamIds.Mode} telemetry={_telemetry?.Path}");
@@ -398,7 +398,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
             && _manager.Config.HasFleetSizeOverride
             && _manager.Config.FleetSizeOverride == 0)
         {
-            info.ReplyToCommand("  (fleet drained — `insanity_fleet_size N` or `insanity_kick_bots respawn` to restore)");
+            info.ReplyToCommand("  (fleet drained — `replica_fleet_size N` or `replica_kick_bots respawn` to restore)");
         }
         foreach (var fc in _manager.All.Take(16))
         {
@@ -413,52 +413,52 @@ public sealed class InsanityRevivePlugin : BasePlugin
                                 $"net={fc.Network.Type} arch={fc.Profile.Archetype} skill={fc.Profile.SkillRating} " +
                                 $"mood={fc.Profile.Mood} tilt={fc.Profile.Tilt}");
         }
-        info.ReplyToCommand($"[Insanity] hider active={_manager.IsHiderActive()}");
+        info.ReplyToCommand($"[Replica] hider active={_manager.IsHiderActive()}");
     }
 
     // P/12 Reveal Finale entry. Two registrations:
-    //   - `insanity_reveal` — rcon / server console
+    //   - `replica_reveal` — rcon / server console
     //   - `css_reveal`      — chat trigger `!reveal` (CSSharp's css_ prefix
     //                          maps `css_NAME` to `!NAME` chat command)
     // Permission @css/root — admin-only.
-    [ConsoleCommand("insanity_reveal", "Trigger reveal finale state machine")]
+    [ConsoleCommand("replica_reveal", "Trigger reveal finale state machine")]
     [ConsoleCommand("css_reveal", "Trigger reveal finale state machine (chat: !reveal)")]
     [RequiresPermissions("@css/root")]
     public void OnReveal(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         var prevStage = _manager.Reveal.Stage;
         _manager.Reveal.Start();
-        info.ReplyToCommand($"[Insanity] reveal: prev={prevStage} → Stage0");
+        info.ReplyToCommand($"[Replica] reveal: prev={prevStage} → Stage0");
     }
 
     // P/12 Stage 4 APOCALYPSE manual trigger (v0.7.0-beta — 2026-05-08).
     // Requires reveal already active (Stage 1/2/3); transitions to Stage 4.
-    [ConsoleCommand("insanity_reveal_apocalypse", "Trigger Stage 4 (C4 suicide bots) — requires active reveal")]
+    [ConsoleCommand("replica_reveal_apocalypse", "Trigger Stage 4 (C4 suicide bots) — requires active reveal")]
     [ConsoleCommand("css_reveal_apocalypse", "Trigger Stage 4 (chat: !reveal_apocalypse)")]
     [RequiresPermissions("@css/root")]
     public void OnRevealApocalypse(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         var prevStage = _manager.Reveal.Stage;
         bool ok = _manager.Reveal.StartApocalypse();
         info.ReplyToCommand(ok
-            ? $"[Insanity] APOCALYPSE: prev={prevStage} → Stage4"
-            : $"[Insanity] APOCALYPSE refused (stage={prevStage}); start a reveal first");
+            ? $"[Replica] APOCALYPSE: prev={prevStage} → Stage4"
+            : $"[Replica] APOCALYPSE refused (stage={prevStage}); start a reveal first");
     }
 
     // ──────────────────────────────────────────────────────────────────
     // Stage 4 probes (temporary live-verification commands; see Probe.cs)
     // ──────────────────────────────────────────────────────────────────
 
-    [ConsoleCommand("insanity_probe_glow", "Probe 1: tint a bot's pawn red via m_clrRender")]
+    [ConsoleCommand("replica_probe_glow", "Probe 1: tint a bot's pawn red via m_clrRender")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 1, usage: "<slot> [r g b]")]
     public void OnProbeGlow(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         if (!int.TryParse(info.GetArg(1), out var slot)) {
-            info.ReplyToCommand("[probe] usage: insanity_probe_glow <slot> [r g b]");
+            info.ReplyToCommand("[probe] usage: replica_probe_glow <slot> [r g b]");
             return;
         }
         byte r = 255, g = 0, b = 0;
@@ -469,25 +469,25 @@ public sealed class InsanityRevivePlugin : BasePlugin
         info.ReplyToCommand($"[probe] {Probe.Glow(slot, r, g, b)}");
     }
 
-    [ConsoleCommand("insanity_probe_c4", "Probe 2: GiveNamedItem(weapon_c4) on a bot")]
+    [ConsoleCommand("replica_probe_c4", "Probe 2: GiveNamedItem(weapon_c4) on a bot")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 1, usage: "<slot>")]
     public void OnProbeC4(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         if (!int.TryParse(info.GetArg(1), out var slot)) {
-            info.ReplyToCommand("[probe] usage: insanity_probe_c4 <slot>");
+            info.ReplyToCommand("[probe] usage: replica_probe_c4 <slot>");
             return;
         }
         info.ReplyToCommand($"[probe] {Probe.GiveC4(slot)}");
     }
 
-    [ConsoleCommand("insanity_probe_hurtzero", "Probe 3: arm/disarm BotDamagePatch as alt damage filter")]
+    [ConsoleCommand("replica_probe_hurtzero", "Probe 3: arm/disarm BotDamagePatch as alt damage filter")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "[arm|disarm]")]
     public void OnProbeHurtZero(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         var arg = info.ArgCount > 1 ? info.GetArg(1).Trim().ToLowerInvariant() : "arm";
         var msg = arg == "disarm" ? Probe.HurtZeroDisarm(_manager) : Probe.HurtZeroArmOnce(_manager);
         info.ReplyToCommand($"[probe] {msg}");
@@ -499,13 +499,13 @@ public sealed class InsanityRevivePlugin : BasePlugin
     // is built. Drop these once one of three methods is empirically green.
     // ──────────────────────────────────────────────────────────────────
 
-    [ConsoleCommand("insanity_probe_aim_pin",
+    [ConsoleCommand("replica_probe_aim_pin",
         "Aim probe: write fixed (pitch,yaw) every tick for N seconds")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 3, usage: "<slot> <pitch> <yaw> [seconds=5] [method=vangle|eye|teleport]")]
     public void OnProbeAimPin(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         if (!int.TryParse(info.GetArg(1), out var slot)
             || !float.TryParse(info.GetArg(2),
                 System.Globalization.NumberStyles.Float,
@@ -514,7 +514,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var yaw))
         {
-            info.ReplyToCommand("[probe] usage: insanity_probe_aim_pin <slot> <pitch> <yaw> [seconds] [method]");
+            info.ReplyToCommand("[probe] usage: replica_probe_aim_pin <slot> <pitch> <yaw> [seconds] [method]");
             return;
         }
         int seconds = 5;
@@ -523,13 +523,13 @@ public sealed class InsanityRevivePlugin : BasePlugin
         info.ReplyToCommand($"[probe] {AimProbe.PinSlot(slot, pitch, yaw, seconds, method)}");
     }
 
-    [ConsoleCommand("insanity_probe_aim_persist",
+    [ConsoleCommand("replica_probe_aim_persist",
         "Aim probe: write (pitch,yaw) ONCE then observe drift for 3s")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 3, usage: "<slot> <pitch> <yaw> [method=vangle|eye|teleport]")]
     public void OnProbeAimPersist(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         if (!int.TryParse(info.GetArg(1), out var slot)
             || !float.TryParse(info.GetArg(2),
                 System.Globalization.NumberStyles.Float,
@@ -538,14 +538,14 @@ public sealed class InsanityRevivePlugin : BasePlugin
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var yaw))
         {
-            info.ReplyToCommand("[probe] usage: insanity_probe_aim_persist <slot> <pitch> <yaw> [method]");
+            info.ReplyToCommand("[probe] usage: replica_probe_aim_persist <slot> <pitch> <yaw> [method]");
             return;
         }
         var method = info.ArgCount >= 5 ? AimProbe.ParseMethod(info.GetArg(4)) : AimProbe.Method.VAngle;
         info.ReplyToCommand($"[probe] {AimProbe.PersistSlot(slot, pitch, yaw, method)}");
     }
 
-    [ConsoleCommand("insanity_probe_aim_unpin",
+    [ConsoleCommand("replica_probe_aim_unpin",
         "Aim probe: cancel a pin (slot or 'all')")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "[slot|all]")]
@@ -555,13 +555,13 @@ public sealed class InsanityRevivePlugin : BasePlugin
         if (info.ArgCount > 1 && info.GetArg(1).Trim().ToLowerInvariant() != "all"
             && !int.TryParse(info.GetArg(1), out slot))
         {
-            info.ReplyToCommand("[probe] usage: insanity_probe_aim_unpin [slot|all]");
+            info.ReplyToCommand("[probe] usage: replica_probe_aim_unpin [slot|all]");
             return;
         }
         info.ReplyToCommand($"[probe] {AimProbe.Unpin(slot)}");
     }
 
-    [ConsoleCommand("insanity_probe_aim_status",
+    [ConsoleCommand("replica_probe_aim_status",
         "Aim probe: list active pins")]
     [RequiresPermissions("@css/cheats")]
     public void OnProbeAimStatus(CCSPlayerController? caller, CommandInfo info)
@@ -575,7 +575,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
     // Writes m_lookPitch/Yaw before bot AI smoother reads them.
     // ──────────────────────────────────────────────────────────────────
 
-    [ConsoleCommand("insanity_aim_diag",
+    [ConsoleCommand("replica_aim_diag",
         "Aim diagnostic: log shooter's angle fields vs actual bullet trajectory")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "[on|off] [budget=30]")]
@@ -588,7 +588,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
         info.ReplyToCommand($"[aimdiag] enabled={on} budget={AimDiag.LogsRemaining}");
     }
 
-    [ConsoleCommand("insanity_aim_disable",
+    [ConsoleCommand("replica_aim_disable",
         "Toggle AimController identity-passthrough+noise globally for diagnostic")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "[on|off]")]
@@ -599,13 +599,13 @@ public sealed class InsanityRevivePlugin : BasePlugin
         info.ReplyToCommand($"[aim] AimController disabled = {off}  (ON = AimController.Tick no-ops, manual perslot writes survive)");
     }
 
-    [ConsoleCommand("insanity_aim_perslot",
+    [ConsoleCommand("replica_aim_perslot",
         "Per-slot aim override: writes pawn ptr + (pitch, yaw) into pool AimSlot[slot]; only that bot turns")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 1, usage: "<slot> <pitch> <yaw>  |  <slot> off  |  status")]
     public void OnAimPerSlot(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         var pool = _manager.GetPool();
         if (pool == null || !pool.IsOpen) { info.ReplyToCommand("[aimperslot] pool not open"); return; }
 
@@ -626,7 +626,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
 
         if (!int.TryParse(first, out var slot) || slot < 0 || slot >= PoolMmap.AimSlotCount)
         {
-            info.ReplyToCommand("[aimperslot] usage: insanity_aim_perslot <slot> <pitch> <yaw> | <slot> off | status");
+            info.ReplyToCommand("[aimperslot] usage: replica_aim_perslot <slot> <pitch> <yaw> | <slot> off | status");
             return;
         }
 
@@ -664,7 +664,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
             || !float.TryParse(info.GetArg(2), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pitch)
             || !float.TryParse(info.GetArg(3), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var yaw))
         {
-            info.ReplyToCommand("[aimperslot] usage: insanity_aim_perslot <slot> <pitch> <yaw>");
+            info.ReplyToCommand("[aimperslot] usage: replica_aim_perslot <slot> <pitch> <yaw>");
             return;
         }
         pitch = Math.Clamp(pitch, -89f, 89f);
@@ -672,7 +672,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
         info.ReplyToCommand($"[aimperslot] slot={slot} botKey=0x{botKey:X} pitch={pitch:F1} yaw={yaw:F1}");
     }
 
-    [ConsoleCommand("insanity_probe_lookflow",
+    [ConsoleCommand("replica_probe_lookflow",
         "Capture per-tick m_lookPitch/Yaw + m_angEyeAngles for one bot to discriminate engine-target vs smoother-output")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 1, usage: "<slot> [ticks=256]  |  stop")]
@@ -687,7 +687,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
         }
         if (!int.TryParse(first, out var slot) || slot < 0 || slot > 63)
         {
-            info.ReplyToCommand("[lookflow] usage: insanity_probe_lookflow <slot> [ticks=256] | stop");
+            info.ReplyToCommand("[lookflow] usage: replica_probe_lookflow <slot> [ticks=256] | stop");
             return;
         }
         int ticks = 256;
@@ -696,13 +696,13 @@ public sealed class InsanityRevivePlugin : BasePlugin
         info.ReplyToCommand($"[lookflow] armed slot={slot} ticks={ticks}; engage the bot, dump fires automatically into server.log");
     }
 
-    [ConsoleCommand("insanity_aim_hook_set",
+    [ConsoleCommand("replica_aim_hook_set",
         "Aim override (global): writes pool fields read by InsanityHider C++ PRE-detour on CCSBot::UpdateLookAngles")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 0, usage: "<pitch> <yaw>  |  off  |  status")]
     public void OnAimHookSet(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         var pool = _manager.GetPool();
         if (info.ArgCount < 2)
         {
@@ -729,7 +729,7 @@ public sealed class InsanityRevivePlugin : BasePlugin
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var yaw))
         {
-            info.ReplyToCommand("[aimhook] usage: insanity_aim_hook_set <pitch> <yaw> | off | status");
+            info.ReplyToCommand("[aimhook] usage: replica_aim_hook_set <pitch> <yaw> | off | status");
             return;
         }
         pitch = Math.Clamp(pitch, -89f, 89f);
@@ -743,40 +743,40 @@ public sealed class InsanityRevivePlugin : BasePlugin
     // BotProfile inspection (the umbrella structure introduced 2026-05-08)
     // ──────────────────────────────────────────────────────────────────
 
-    [ConsoleCommand("insanity_profile", "Print full BotProfile dump for a bot")]
+    [ConsoleCommand("replica_profile", "Print full BotProfile dump for a bot")]
     [ConsoleCommand("css_profile", "Print BotProfile (chat: !profile <slot>)")]
     [RequiresPermissions("@css/cheats")]
     [CommandHelper(minArgs: 1, usage: "<slot>")]
     public void OnProfile(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         if (!int.TryParse(info.GetArg(1), out var slot)) {
-            info.ReplyToCommand("[Insanity] usage: insanity_profile <slot>");
+            info.ReplyToCommand("[Replica] usage: replica_profile <slot>");
             return;
         }
         var fc = _manager.FindBySlot(slot);
         if (fc == null) {
-            info.ReplyToCommand($"[Insanity] no managed bot at slot {slot}");
+            info.ReplyToCommand($"[Replica] no managed bot at slot {slot}");
             return;
         }
-        info.ReplyToCommand($"[Insanity] BotProfile for #{fc.Id} {fc.Name} (slot={slot}):");
+        info.ReplyToCommand($"[Replica] BotProfile for #{fc.Id} {fc.Name} (slot={slot}):");
         foreach (var line in fc.Profile.DebugDump().Split('\n'))
             info.ReplyToCommand(line);
         info.ReplyToCommand($"  simulator:    {fc.Simulator.DebugStateString()}");
     }
 
-    [ConsoleCommand("insanity_hider_active", "Toggle InsanityHider BOT-icon hiding (0/1)")]
+    [ConsoleCommand("replica_hider_active", "Toggle InsanityHider BOT-icon hiding (0/1)")]
     [RequiresPermissions("@css/generic")]
     public void OnHiderActive(CCSPlayerController? caller, CommandInfo info)
     {
-        if (_manager == null) { info.ReplyToCommand("[Insanity] not loaded"); return; }
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
         if (info.ArgCount < 2)
         {
-            info.ReplyToCommand($"[Insanity] hider active={_manager.IsHiderActive()} (usage: insanity_hider_active 0|1)");
+            info.ReplyToCommand($"[Replica] hider active={_manager.IsHiderActive()} (usage: replica_hider_active 0|1)");
             return;
         }
         bool on = info.GetArg(1).Trim() is "1" or "true" or "on";
         _manager.SetHiderActive(on);
-        info.ReplyToCommand($"[Insanity] hider active={on}");
+        info.ReplyToCommand($"[Replica] hider active={on}");
     }
 }

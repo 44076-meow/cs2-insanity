@@ -332,7 +332,7 @@ public sealed class PoolMmap : IDisposable
     // Push a persona name into the SPSC FIFO. C++ Hider pops from the other
     // side at CFC PRE. Returns false if the queue is full (caller should
     // either drop the spawn or just retry; queue capacity is 16, well above
-    // any realistic batched insanity_spawn_bots N).
+    // any realistic batched replica_spawn_bots N).
     public bool PushFifo(string name)
     {
         if (_va == null || string.IsNullOrEmpty(name)) return false;
