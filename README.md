@@ -7,8 +7,8 @@ Gives engine bots a more lifelike scoreboard presence — synthetic SteamID64s,
 curated persona names, jittered ping, no `BOT` glyph — so practice and
 low-population servers feel populated instead of empty.
 
-[![build](https://github.com/Frad70/replica/actions/workflows/build.yml/badge.svg)](https://github.com/Frad70/replica/actions/workflows/build.yml)
-[![codeql](https://github.com/Frad70/replica/actions/workflows/codeql.yml/badge.svg)](https://github.com/Frad70/replica/actions/workflows/codeql.yml)
+[![build](https://github.com/44076-meow/replica/actions/workflows/build.yml/badge.svg)](https://github.com/44076-meow/replica/actions/workflows/build.yml)
+[![codeql](https://github.com/44076-meow/replica/actions/workflows/codeql.yml/badge.svg)](https://github.com/44076-meow/replica/actions/workflows/codeql.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![stage: early alpha](https://img.shields.io/badge/stage-early%20alpha-orange)
 ![CS2 dedicated](https://img.shields.io/badge/target-CS2%20dedicated%20server-informational)
