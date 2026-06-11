@@ -247,6 +247,13 @@ jobs:
       - name: Ensure protoc is executable
         run: chmod +x ReplicaHider/hl2sdk/devtools/bin/linux/protoc || true
 
+      # Idempotent (grep-gated) SDK patches — chiefly CPlayerSlot's default
+      # ctor, which SourceHook's SH_DECL_HOOK macro brace-initializes but
+      # current hl2sdk/cs2 doesn't declare. Always run: changing this
+      # workflow busts the SDK cache, so a fresh unpatched clone is vendored.
+      - name: Patch vendored SDKs
+        run: scripts/ci-patch-sdks.sh ReplicaHider/hl2sdk
+
       - name: make
         working-directory: ReplicaHider
         run: |
