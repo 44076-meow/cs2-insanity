@@ -89,7 +89,14 @@ public sealed class ReplicaPlugin : BasePlugin
         // diff against actual bullet trajectory at impact. Off by default;
         // arm via replica_aim_diag.
         RegisterEventHandler<EventWeaponFire>((@event, info) => {
-            try { AimDiag.OnWeaponFire(@event.Userid); }
+            try {
+                AimDiag.OnWeaponFire(@event.Userid);
+                // Spray-bloom feed (#45): burst length drives the aim
+                // error multiplier in AimController.
+                var shooter = @event.Userid;
+                if (shooter != null && shooter.IsValid)
+                    _manager?.FindBySlot((int)shooter.Slot)?.Aim.NotifyShot(Server.TickCount);
+            }
             catch (Exception ex) { Log.Debug($"AimDiag.OnWeaponFire: {ex.Message}"); }
             return HookResult.Continue;
         });
