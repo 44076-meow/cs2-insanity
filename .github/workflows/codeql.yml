@@ -42,17 +42,17 @@ jobs:
           - language: cpp
             build-mode: manual
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Init CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Set up .NET 8
         if: matrix.language == 'csharp'
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
@@ -85,7 +85,7 @@ jobs:
       - name: Cache hl2sdk clone
         if: matrix.language == 'cpp'
         id: cache-hl2sdk
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ReplicaHider/hl2sdk
           key: hl2sdk-${{ env.HL2SDK_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
@@ -93,7 +93,7 @@ jobs:
       - name: Cache metamod-source clone
         if: matrix.language == 'cpp'
         id: cache-mmsource
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ReplicaHider/mmsource
           key: mmsource-${{ env.MMSOURCE_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
@@ -118,6 +118,6 @@ jobs:
           make -j"$(nproc)"
 
       - name: CodeQL analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
