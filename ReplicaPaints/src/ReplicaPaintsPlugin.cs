@@ -34,6 +34,9 @@ public sealed class ReplicaPaintsPlugin : BasePlugin
         RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventPlayerDeath>(OnPlayerDeath);
         RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
+        // Buy-burst safety: weapon applies are queued and drained at a
+        // fixed per-tick budget (see ApplyService.DrainWeaponApplyQueue).
+        RegisterListener<Listeners.OnTick>(() => _apply?.DrainWeaponApplyQueue());
         RegisterListener<Listeners.OnClientDisconnect>(slot => {
             // Flush kill-counter increments to disk when a player leaves
             // so we don't lose their progress on the next plugin reload.
