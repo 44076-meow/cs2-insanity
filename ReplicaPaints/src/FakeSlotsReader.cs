@@ -48,7 +48,22 @@ public sealed class FakeSlotsReader : IDisposable
         {
             if (!File.Exists(path))
             {
-                Log.Debug($"FakeSlotsReader: pool file missing ({path}); IsManaged will return false");
+                // A missing pool is NOT a debug-grade event: every bot then
+                // reads as unmanaged → classified human → default loadouts,
+                // silently, forever. Exactly this hid a stale pre-rebrand
+                // pool_path in settings.json for weeks (2026-06-13 find).
+                // If the configured path is custom and dead while the
+                // default pool exists, assume stale config and fall back.
+                if (!string.Equals(path, DefaultPath, StringComparison.Ordinal)
+                    && File.Exists(DefaultPath))
+                {
+                    Log.Warn($"FakeSlotsReader: configured pool_path '{path}' missing but " +
+                             $"default '{DefaultPath}' exists — stale config? Falling back. " +
+                             "Update settings.json pool_path to silence this.");
+                    return TryOpen(DefaultPath);
+                }
+                Log.Warn($"FakeSlotsReader: pool file missing ({path}) — every bot will " +
+                         "read as unmanaged (human/default loadouts) until it appears");
                 return false;
             }
             var info = new FileInfo(path);
