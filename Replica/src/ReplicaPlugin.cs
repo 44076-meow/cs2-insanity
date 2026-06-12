@@ -245,7 +245,11 @@ public sealed class ReplicaPlugin : BasePlugin
 
     public override void Unload(bool hotReload)
     {
-        try { _manager?.Dispose(); } catch { }
+        // Thread hotReload through (fd9a478, restored in #196): on a
+        // hot-reload OnUnload must NOT kick the fleet — the async kickid
+        // queue races the next instance's adopt sweep and the stale
+        // slots float as ghosts while a fresh fleet spawns alongside.
+        try { _manager?.OnUnload(hotReload); } catch { }
         try { _telemetry?.Dispose(); } catch { }
         _manager = null; _telemetry = null;
     }
