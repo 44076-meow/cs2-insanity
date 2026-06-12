@@ -266,25 +266,51 @@ public sealed class ApplyService
     }
 
     /// <summary>Entry point for newly-spawned weapon entities (so a buy
-    /// mid-round picks up the right skin without a full respawn).</summary>
+    /// mid-round picks up the right skin without a full respawn).
+    ///
+    /// Queued, NOT applied inline: the old Server.NextWorldUpdate path
+    /// bunched every weapon of a freeze-time buy burst (9 bots × full
+    /// loadout ≈ 30-45 entities within a second) into the same world
+    /// update — the same all-writes-on-one-tick animation race the
+    /// per-slot spawn stagger (fc7d2d1) closed for ApplyAll. Three live
+    /// GPFs in libanimationsystem at identical offsets, all at buy
+    /// moments, 2026-06-13. The queue drains at WeaponAppliesPerTick
+    /// from the plugin's OnTick; the ≥1-tick delay also preserves the
+    /// owner-not-yet-set grace the NextWorldUpdate hop used to give.</summary>
     public void OnWeaponEntitySpawn(CBasePlayerWeapon weapon)
     {
         if (!weapon.IsValid) return;
-        Server.NextWorldUpdate(() =>
+        _weaponApplyQueue.Enqueue((weapon, Server.TickCount));
+    }
+
+    private readonly Queue<(CBasePlayerWeapon Weapon, int EnqueueTick)> _weaponApplyQueue = new();
+    private const int WeaponAppliesPerTick    = 2;
+    private const int WeaponApplyTimeoutTicks = 128;  // 2s — entries whose entity died drop out
+
+    /// <summary>Per-tick drain — at most WeaponAppliesPerTick actual
+    /// applies reach the animation system per tick. Skipped/stale
+    /// entries don't consume budget.</summary>
+    public void DrainWeaponApplyQueue()
+    {
+        int budget = WeaponAppliesPerTick;
+        while (budget > 0 && _weaponApplyQueue.Count > 0)
         {
+            var (weapon, enqueueTick) = _weaponApplyQueue.Dequeue();
+            if (Server.TickCount - enqueueTick > WeaponApplyTimeoutTicks) continue;
             try
             {
-                if (!weapon.IsValid) return;
+                if (!weapon.IsValid) continue;
                 var ownerHandle = weapon.OwnerEntity;
-                if (!ownerHandle.IsValid) return;
+                if (!ownerHandle.IsValid) continue;
                 var pawn = new CCSPlayerPawn(ownerHandle.Value!.Handle);
-                if (!pawn.IsValid || pawn.Controller.Value == null) return;
+                if (!pawn.IsValid || pawn.Controller.Value == null) continue;
                 var controller = new CCSPlayerController(pawn.Controller.Value.Handle);
-                if (!ShouldApply(controller, out _)) return;
+                if (!ShouldApply(controller, out _)) continue;
                 ApplyToWeapon(controller, weapon);
+                budget--;
             }
-            catch (Exception ex) { Log.Debug($"OnWeaponEntitySpawn: {ex.Message}"); }
-        });
+            catch (Exception ex) { Log.Debug($"DrainWeaponApplyQueue: {ex.Message}"); }
+        }
     }
 
     // -- internals -------------------------------------------------------
