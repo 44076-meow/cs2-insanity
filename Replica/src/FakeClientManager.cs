@@ -266,14 +266,31 @@ public sealed class FakeClientManager : IDisposable
         // candidates. Investigation in progress.
     }
 
-    public void OnUnload()
+    public void OnUnload(bool hotReload = false)
     {
-        foreach (var id in _byId.Keys.ToArray()) Despawn(id, "shutdown");
+        // Restored from fd9a478 after the rebrand restructure dropped it
+        // (#196). Despawn issues `kickid {slot}` via the engine command
+        // buffer (async) and clears pool[slot]=0 (sync). On a hot-reload
+        // the async kicks lag the new instance's Load by hundreds of ms,
+        // so its adopt sweep runs while the engine still holds the stale
+        // slots — they float as ghosts until kickid lands, while
+        // Reconcile spawns a fresh fleet alongside (inflated alive
+        // counters). Keeping slots + pool intact across the hot-reload
+        // boundary lets the new instance re-adopt them cleanly.
+        if (!hotReload)
+        {
+            foreach (var id in _byId.Keys.ToArray()) Despawn(id, "shutdown");
+        }
+        // Detour + nav patch live in libserver memory — they MUST be
+        // uninstalled regardless of hotReload: Load() re-installs on the
+        // next instance, and two detours on one address is chaos.
         Detour.Uninstall(); _navPatch.Undo();
         // Defensive save — every mutation already flushes, but a final
         // pass guards against a race where the last mutation didn't reach
-        // disk before shutdown.
+        // disk before shutdown / reload.
         _registry.Save();
+        // Pool.Close just closes the OS handle; the mmap file persists
+        // and the next instance reopens it on Load.
         _pool.Close();
     }
 
@@ -564,9 +581,15 @@ public sealed class FakeClientManager : IDisposable
             { "botId", id }, { "personaId", fc.PersonaId }, { "reason", reason },
             { "name", fc.Name }, { "slot", fc.Slot } });
         try {
+            // Restored from b696a39 (#196): kick by slot, no IsBot gate.
+            // The Hider flips m_bFakePlayer, so `ctrl.IsBot` reads false
+            // for managed bots and the old gate skipped the kick; name-
+            // based `bot_kick` also missed overwritten names. `kickid`
+            // works regardless of fake-player state (userid == slot,
+            // verified in match-log connect lines).
             var ctrl = Utilities.GetPlayerFromSlot(fc.Slot);
-            if (ctrl != null && ctrl.IsValid && ctrl.IsBot)
-                Server.ExecuteCommand($"bot_kick {fc.Name}");
+            if (ctrl != null && ctrl.IsValid)
+                Server.ExecuteCommand($"kickid {fc.Slot}");
         } catch { }
         // Quota tracks (active+pending) — Despawn drops one, re-assert.
         EnforceBotQuota();
@@ -575,7 +598,33 @@ public sealed class FakeClientManager : IDisposable
     public int DespawnAll(string reason)
     {
         var n = _byId.Count;
+        var managedSlots = new HashSet<int>(_byId.Values.Select(fc => fc.Slot));
         foreach (var id in _byId.Keys.ToArray()) Despawn(id, reason);
+
+        // Defensive sweep (#196): engine-side fakes that never entered
+        // _byId (bot_quota race before the FleetSize pin, or a prior
+        // instance's leftovers) survive the managed loop — exactly the
+        // orphans that ride into the next fleet spawn. Kick anything
+        // that is neither a tracked human nor a just-despawned slot.
+        // Human gate is double: the connect-time human registry plus
+        // AuthorizedSteamID (same guard the team enforcer uses, #18/#98).
+        int swept = 0;
+        for (int slot = 0; slot < 64; slot++)
+        {
+            if (_humanNamesBySlot.ContainsKey(slot) || managedSlots.Contains(slot)) continue;
+            CCSPlayerController? c = null;
+            try { c = Utilities.GetPlayerFromSlot(slot); } catch { }
+            if (c == null || !c.IsValid || c.AuthorizedSteamID != null) continue;
+            Server.ExecuteCommand($"kickid {slot}");
+            swept++;
+        }
+        if (swept > 0)
+        {
+            Log.Info($"DespawnAll: swept {swept} unmanaged engine fake(s)");
+            Telemetry.Write("orphan_sweep", new Dictionary<string, object?> {
+                { "reason", reason }, { "count", swept } });
+            n += swept;
+        }
         // Drop in-flight pending personas too — without this, names that
         // were pushed to the C++ FIFO but not yet adopted will land as
         // fresh _byId entries on the next CFC PRE / OCC dance and the
