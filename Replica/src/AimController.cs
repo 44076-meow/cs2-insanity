@@ -363,8 +363,16 @@ public sealed class AimController
     }
 
     /// <summary>Pick closest alive enemy controller within FOV cone of
-    /// (fwdX, fwdY). Returns null if no enemies in view. L1: distance-only,
-    /// no LoS check (will see through walls). L1.5+ adds raycast.</summary>
+    /// (fwdX, fwdY). Returns null if no enemies in view.
+    ///
+    /// LoS (#42): instead of our own raycast (engine trace isn't cleanly
+    /// exposed to CSSharp), gate on the engine's spotted state —
+    /// <c>m_entitySpottedState.m_bSpottedByMask</c> is maintained by the
+    /// engine's own visibility traces per observer. An enemy whose mask
+    /// lacks our slot bit is invisible to this bot: not pickable, so the
+    /// eye no longer tracks people through walls. Spotted-state decay
+    /// (~radar memory) gives a human-ish brief "remembering" of a target
+    /// that just broke LoS, and the reaction latch smooths reacquire.</summary>
     private CCSPlayerController? PickTarget(
         CCSPlayerController self,
         float eyeX, float eyeY, float eyeZ,
@@ -391,6 +399,7 @@ public sealed class AimController
             if (ePawn == null || !ePawn.IsValid) continue;
             if (ePawn.LifeState != 0) continue;  // 0 = alive
             if (ePawn.AbsOrigin == null) continue;
+            if (!IsSpottedBy(ePawn, self.Slot)) continue;  // LoS gate (#42)
 
             float dx = ePawn.AbsOrigin.X - eyeX;
             float dy = ePawn.AbsOrigin.Y - eyeY;
@@ -413,6 +422,22 @@ public sealed class AimController
             }
         }
         return best;
+    }
+
+    /// <summary>Engine-maintained visibility: does observer slot's bit sit
+    /// in the pawn's spotted-by mask? Mask layout: uint32[2], one bit per
+    /// slot (0-63). Any read failure counts as NOT spotted — the safe
+    /// default is "can't see", which disarms rather than wallhacks.</summary>
+    private static bool IsSpottedBy(CCSPlayerPawn pawn, int observerSlot)
+    {
+        if (observerSlot < 0 || observerSlot >= 64) return false;
+        try
+        {
+            var mask = pawn.EntitySpottedState.SpottedByMask;
+            uint word = mask[observerSlot / 32];
+            return (word & (1u << (observerSlot % 32))) != 0;
+        }
+        catch { return false; }
     }
 
     /// <summary>Force-disarm: clear our AimSlot if armed. Idempotent. Called
