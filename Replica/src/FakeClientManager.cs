@@ -461,13 +461,22 @@ public sealed class FakeClientManager : IDisposable
 
     public void AdoptExistingBots()
     {
-        // Hot reload: bots may already have m_bFakePlayer=0 written by a
-        // previous Hider session (c.IsBot=False). Accept either signal —
-        // the engine's bot bit (live state) OR our pool mark (persisted).
+        // Hot reload: adopt EVERY connected non-human — no pool/IsBot gate.
+        // Both old signals are unreliable here (#196 post-mortem, idle
+        // css_plugins-reload repro): the Hider flips m_bFakePlayer so
+        // c.IsBot reads false, and the dying instance's Despawn may have
+        // zeroed the pool marks while its queued kickid commands were
+        // DROPPED with the plugin context — leaving live, unmarked fakes.
+        // Gating on those signals skipped all of them; Reconcile then
+        // spawned a fresh fleet alongside → ghost roster (8 managed,
+        // 16 connected). A connected controller that is neither a tracked
+        // human nor Steam-authorized can only be a fake — adopt it.
+        // Human gate: connect-time registry + AuthorizedSteamID (#18/#98),
+        // the same pair the DespawnAll kick sweep uses.
         foreach (var c in Utilities.GetPlayers())
         {
             if (c == null || !c.IsValid || c.IsHLTV) continue;
-            if (!c.IsBot && _pool.Read(c.Slot) == 0) continue;
+            if (_humanNamesBySlot.ContainsKey(c.Slot) || c.AuthorizedSteamID != null) continue;
             if (_byId.Values.Any(b => b.Slot == c.Slot)) continue;
             // Make sure pool reflects management before AdoptController.
             if (_pool.Read(c.Slot) == 0) _pool.Write(c.Slot, 1);
@@ -552,6 +561,11 @@ public sealed class FakeClientManager : IDisposable
         // can also re-overwrite engine-side m_Name on mapchange-rebuilt
         // CServerSideClient instances (defensive — primary path is CFC PRE).
         _pool.WriteName(slot, persona.Name);
+        // Assert the managed mark from C# too (#196): the Hider stamps it
+        // on its CFC path, but adopts that arrive outside that path
+        // (re-adopt after reload, engine_quota races) must not depend on
+        // it — Despawn/identity logic keys off this byte.
+        if (_pool.Read(slot) == 0) _pool.Write(slot, 1);
         fc.OverwriteIdentityOnController(ctrl);
 
         // Engine re-stamps name from bot_names.txt during post-spawn —
@@ -615,6 +629,10 @@ public sealed class FakeClientManager : IDisposable
             CCSPlayerController? c = null;
             try { c = Utilities.GetPlayerFromSlot(slot); } catch { }
             if (c == null || !c.IsValid || c.AuthorizedSteamID != null) continue;
+            // Post-kick controllers linger as "valid" for a few frames —
+            // kicking them again just spams `userid not found`. Only
+            // sweep slots the engine still considers connected.
+            if (c.Connected != PlayerConnectedState.Connected) continue;
             Server.ExecuteCommand($"kickid {slot}");
             swept++;
         }
