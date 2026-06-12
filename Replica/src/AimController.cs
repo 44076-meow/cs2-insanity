@@ -126,6 +126,41 @@ public sealed class AimController
     private const float RunSpeed        = 220f;
     private const float MoveErrorMultMax = 2.75f;
 
+    // Spray-pattern modulation (#45). Error blooms with consecutive shots
+    // in a burst: humans lose the pattern after the first few bullets.
+    // Burst length is fed from EventWeaponFire (NotifyShot) — no schema
+    // dependency; a gap longer than BurstResetTicks (≈250 ms) starts a
+    // fresh burst. First SprayFreeShots shots are unaffected (taps and
+    // 2-bursts stay true to base skill), then +SprayBloomPerShot per
+    // bullet up to SprayBloomMax.
+    private const int   BurstResetTicks  = 16;
+    private const int   SprayFreeShots   = 2;
+    private const float SprayBloomPerShot = 0.07f;
+    private const float SprayBloomMax     = 1.6f;
+    private int _lastShotTick = -100000;
+    private int _burstShots;
+
+    // Distance × weapon-class error scaling (#45 follow-up from live
+    // observation: long-range pistol headshots were systematically too
+    // frequent — P250 HS at ~57 m class). Angle-constant error already
+    // shrinks hit probability with range, but real aim degrades FASTER
+    // than linear once past mid-range, and degrades differently per
+    // weapon class (a pistol duel at 50 m is a coin toss for humans; an
+    // AWP is not). farT ramps 0→1 between FarStartM and FarEndM; the
+    // class multiplier is the error factor at full range.
+    private const float FarStartM = 18f;
+    private const float FarEndM   = 50f;
+    private const float UnitsPerMeter = 52.5f;
+
+    // Head-bias (#44, path b — high-skill differentiation). L1 aimed at
+    // body center for everyone, capping top personas at body-shot
+    // lethality. Now aim height lerps from body center to head with
+    // skill: ≤HeadBiasSkillFloor stays body, 100 aims at the head.
+    // Because the bias rides CurrentAimSkill (mood/tilt-modulated), a
+    // tilted pro stops headhunting — exactly the human signature.
+    private const float HeadHeight         = 66f;
+    private const float HeadBiasSkillFloor = 65f;
+
     public bool Armed => _armed;
     public int  LastTargetSlot => (int)_lastTargetSlotPlus1 - 1;
 
@@ -174,9 +209,17 @@ public sealed class AimController
 
         var tPawn = target.PlayerPawn?.Value;
         if (tPawn?.AbsOrigin == null) { Disarm(pool); return; }
+
+        // Head-bias (#44): aim height rises from body center toward the
+        // head as CurrentAimSkill exceeds the floor. Computed before the
+        // angle math so scatter applies around the *intended* point.
+        float skill = profile?.CurrentAimSkill ?? 50f;
+        float headBias = Math.Clamp((skill - HeadBiasSkillFloor) / (100f - HeadBiasSkillFloor), 0f, 1f);
+        float aimHeight = TargetBodyHeight + headBias * (HeadHeight - TargetBodyHeight);
+
         float tx = tPawn.AbsOrigin.X;
         float ty = tPawn.AbsOrigin.Y;
-        float tz = tPawn.AbsOrigin.Z + TargetBodyHeight;
+        float tz = tPawn.AbsOrigin.Z + aimHeight;
 
         // Compute aim angle from bot eye to target body center.
         float dx = tx - eyeX;
@@ -235,15 +278,29 @@ public sealed class AimController
             return;
         }
 
-        // Error magnitude: per-skill factor × movement multiplier (#45).
-        float skill = profile?.CurrentAimSkill ?? 50f;
+        // Error magnitude: per-skill factor × movement × spray × range (#45).
         float errorFactor = MathF.Max(0f, 1f - skill / 100f);
         float speed2d = 0f;
         var vel = pawn.AbsVelocity;
         if (vel != null) speed2d = MathF.Sqrt(vel.X * vel.X + vel.Y * vel.Y);
         float moveT = Math.Clamp((speed2d - CampSpeed) / (RunSpeed - CampSpeed), 0f, 1f);
         float moveMult = 1f + moveT * (MoveErrorMultMax - 1f);
-        float errorDeg = errorFactor * MaxAimErrorDeg * moveMult;
+
+        // Spray bloom: burst length is maintained by NotifyShot (event-
+        // fed); a stale burst (gap > BurstResetTicks) reads as zero.
+        int burst = (Server.TickCount - _lastShotTick) > BurstResetTicks ? 0 : _burstShots;
+        float sprayMult = MathF.Min(SprayBloomMax,
+            1f + MathF.Max(0, burst - SprayFreeShots) * SprayBloomPerShot);
+
+        // Distance × weapon-class scaling. Skill shaves the penalty: a
+        // 95-skill persona keeps 35% of the class penalty, a 50-skill
+        // one takes it in full — pros hit long pistol shots *sometimes*.
+        float farT = Math.Clamp((dist2d / UnitsPerMeter - FarStartM) / (FarEndM - FarStartM), 0f, 1f);
+        float classFarMult = FarClassMult(pawn);
+        float skillShave = 1f - 0.65f * (skill / 100f);
+        float rangeMult = 1f + farT * (classFarMult - 1f) * skillShave;
+
+        float errorDeg = errorFactor * MaxAimErrorDeg * moveMult * sprayMult * rangeMult;
 
         float overP = MathF.Max(-89f, MathF.Min(89f, pitchDeg + _scatterUnitP * errorDeg));
         float overY = yawDeg + _scatterUnitY * errorDeg;
@@ -252,6 +309,47 @@ public sealed class AimController
         _armed = true;
         _lastWrittenPitch = overP;
         _lastWrittenYaw   = overY;
+    }
+
+    /// <summary>Burst bookkeeping for spray bloom (#45). Fed from the
+    /// plugin's EventWeaponFire handler — the engine BT owns the trigger,
+    /// we only observe. A gap longer than BurstResetTicks starts a new
+    /// burst.</summary>
+    public void NotifyShot(int tick)
+    {
+        _burstShots = (tick - _lastShotTick) > BurstResetTicks ? 1 : _burstShots + 1;
+        _lastShotTick = tick;
+    }
+
+    /// <summary>Full-range error multiplier by weapon class (#45). Read
+    /// from the active weapon's designer name; null/missing (mid-equip,
+    /// knife out) reads as 1.0 — no penalty. Snipers get a discount:
+    /// long range is their job.</summary>
+    private static float FarClassMult(CCSPlayerPawn pawn)
+    {
+        string? name = null;
+        try { name = pawn.WeaponServices?.ActiveWeapon?.Value?.DesignerName; } catch { }
+        if (string.IsNullOrEmpty(name)) return 1.0f;
+        switch (name)
+        {
+            case "weapon_glock": case "weapon_usp_silencer": case "weapon_hkp2000":
+            case "weapon_p250":  case "weapon_elite":        case "weapon_fiveseven":
+            case "weapon_cz75a": case "weapon_tec9":         case "weapon_deagle":
+            case "weapon_revolver":
+                return 2.2f;
+            case "weapon_mp9":   case "weapon_mac10": case "weapon_mp7":
+            case "weapon_mp5sd": case "weapon_ump45": case "weapon_p90":
+            case "weapon_bizon":
+                return 1.5f;
+            case "weapon_nova":  case "weapon_xm1014": case "weapon_sawedoff":
+            case "weapon_mag7":
+                return 2.5f;
+            case "weapon_awp":   case "weapon_ssg08": case "weapon_scar20":
+            case "weapon_g3sg1":
+                return 0.85f;
+            default:
+                return 1.15f;  // rifles / LMGs — mild far-range tax
+        }
     }
 
     /// <summary>Resample the persistent miss direction (unit offset per
