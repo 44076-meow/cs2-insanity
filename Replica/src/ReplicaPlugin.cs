@@ -99,6 +99,27 @@ public sealed class ReplicaPlugin : BasePlugin
             return HookResult.Continue;
         });
 
+        // Fleet-team enforcer quiet window: every round/match lifecycle
+        // event pushes SwitchTeam activity out past the engine's
+        // teardown/spawn dance (see EnforceFleetTeams hang-safety note).
+        // round_end is folded into the complacency handler below.
+        RegisterEventHandler<EventRoundPrestart>((@event, info) => {
+            _manager?.NoteRoundTransition("round_prestart");
+            return HookResult.Continue;
+        });
+        RegisterEventHandler<EventRoundStart>((@event, info) => {
+            _manager?.NoteRoundTransition("round_start");
+            return HookResult.Continue;
+        });
+        RegisterEventHandler<EventRoundAnnounceMatchStart>((@event, info) => {
+            _manager?.NoteRoundTransition("match_start");
+            return HookResult.Continue;
+        });
+        RegisterEventHandler<EventBeginNewMatch>((@event, info) => {
+            _manager?.NoteRoundTransition("new_match");
+            return HookResult.Continue;
+        });
+
         // BotProfile complacency mechanic (2026-05-08): on round end,
         // compute observed-skill team averages and dispatch RoundEnd
         // events with skill-gap data to each managed bot. Bot's own
@@ -107,6 +128,7 @@ public sealed class ReplicaPlugin : BasePlugin
         RegisterEventHandler<EventRoundEnd>((@event, info) => {
             try {
                 if (_manager == null) return HookResult.Continue;
+                _manager.NoteRoundTransition("round_end");
                 int winnerTeam = @event.Winner;  // 2=T, 3=CT, 0=draw
 
                 // Draw (winnerTeam=0, or other non-T/CT codes used for

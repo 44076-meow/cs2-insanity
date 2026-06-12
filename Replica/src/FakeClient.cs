@@ -18,6 +18,27 @@ public sealed class FakeClient
     public int    Slot      { get; internal set; }
     public bool   Alive     { get; internal set; }
 
+    /// <summary>Server.TickCount at AdoptController bind. Drives the
+    /// spawn-grace window in the manager's fleet-team enforcement: while
+    /// young, the requested team is held against engine re-assignment;
+    /// after grace, valid CT↔T engine moves (halftime swap, scramble)
+    /// are adopted instead of fought.</summary>
+    public int BindTick { get; internal set; }
+
+    /// <summary>Adopt a new intended team (legitimate engine move seen
+    /// post-grace — halftime swap etc.). Keeps the enforcement target in
+    /// sync so the enforcer doesn't flip the bot back every pass.</summary>
+    public void SetTeam(FakeTeam team) => Team = team;
+
+    // Fleet-team enforcement bookkeeping (manager-owned). Cooldown stamp
+    // plus a rolling 10s window of issued switches; when the window fills
+    // the enforcer stops fighting the engine for this bot and adopts its
+    // team instead (anti ping-pong vs willSwitch-0 style refusals).
+    // MinValue/2: "long ago" without `now - stamp` overflowing.
+    public int LastTeamSwitchTick    { get; internal set; } = int.MinValue / 2;
+    public int TeamSwitchWindowStart { get; internal set; } = int.MinValue / 2;
+    public int TeamSwitchesInWindow  { get; internal set; }
+
     /// <summary>
     /// Single source of truth for everything about this bot's "character"
     /// — identity, hardware, network, skill, psychology. Behaviour modules
