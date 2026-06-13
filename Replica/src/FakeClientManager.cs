@@ -315,6 +315,12 @@ public sealed class FakeClientManager : IDisposable
         // restarts, mapchanges, and plugin reloads.
         _registry.Load();
 
+        // Recorded structural aim profiles (record→profile→bot loop, #44).
+        // Read here so AimController can pull a bot's deterministic per-weapon
+        // flaw at adopt time. No-op when no recordings exist or the feature
+        // stays off (replica_aim_structural).
+        StructuralProfileStore.Load();
+
         var detourOk = Detour.Install();
         Log.Info($"detour ProcessUsercmds: {(detourOk ? "ok" : Detour.InstallError)}");
         Telemetry.Write("detour_install", new Dictionary<string, object?> {
@@ -632,6 +638,9 @@ public sealed class FakeClientManager : IDisposable
 
         var fc = new FakeClient(id, persona.Id, persona.Name, persona.SteamId64, team, profile)
             { Slot = slot, Alive = true, BindTick = Server.TickCount };
+        // Attach this persona's recorded structural aim bias (#44), if any.
+        // Cached once here so AimController.Tick does no per-tick name lookup.
+        fc.Aim.StructuralBias = StructuralProfileStore.TryGet(persona.Name);
         // No inline SwitchTeam here: we're inside the connect callback and
         // the engine is still mid-handshake for this controller. The fleet
         // enforcer converges actual→intended within one pass (≤0.5s) from

@@ -57,6 +57,19 @@ public sealed class AimController
     /// stomping on it.</summary>
     public static bool GlobalDisable { get; set; } = false;
 
+    /// <summary>Structural aim bias (#44, record→profile→bot loop). When on,
+    /// each bot adds its recorded human's deterministic per-weapon aim flaw
+    /// (median yaw/pitch from StructuralProfileStore) on top of the RNG
+    /// scatter. OFF by default — flipped at runtime via replica_aim_structural
+    /// so it can be A/B'd live. The per-bot bias map is set at adopt time.</summary>
+    public static bool StructuralEnabled { get; set; } = false;
+
+    /// <summary>This bot's recorded per-weapon (yaw, pitch) bias in degrees,
+    /// or null if its persona has no recording. Cached by the manager at
+    /// FakeClient creation (keyed by persona name) so Tick does no lookup
+    /// beyond the current weapon.</summary>
+    public Dictionary<string, (float Yaw, float Pitch)>? StructuralBias { get; set; }
+
     private bool  _armed;
     private int   _lastSlot = -1;  // slot we last wrote to — clear on slot change
     private uint  _lastTargetSlotPlus1;  // target's slot+1 (so 0 = "no target last tick")
@@ -296,14 +309,27 @@ public sealed class AimController
         // 95-skill persona keeps 35% of the class penalty, a 50-skill
         // one takes it in full — pros hit long pistol shots *sometimes*.
         float farT = Math.Clamp((dist2d / UnitsPerMeter - FarStartM) / (FarEndM - FarStartM), 0f, 1f);
-        float classFarMult = FarClassMult(pawn);
+        string? weaponName = ActiveWeaponName(pawn);
+        float classFarMult = FarClassMult(weaponName);
         float skillShave = 1f - 0.65f * (skill / 100f);
         float rangeMult = 1f + farT * (classFarMult - 1f) * skillShave;
 
         float errorDeg = errorFactor * MaxAimErrorDeg * moveMult * sprayMult * rangeMult;
 
-        float overP = MathF.Max(-89f, MathF.Min(89f, pitchDeg + _scatterUnitP * errorDeg));
+        float overP = pitchDeg + _scatterUnitP * errorDeg;
         float overY = yawDeg + _scatterUnitY * errorDeg;
+
+        // Structural bias (#44): deterministic recorded-human per-weapon flaw,
+        // added BEFORE the pitch clamp so it can't push past ±89°. Applied on
+        // top of scatter so the bot still has both a stable habit and live
+        // jitter. Magnitudes are sub-degree to a few degrees (medians).
+        if (StructuralEnabled && StructuralBias != null && weaponName != null
+            && StructuralBias.TryGetValue(weaponName, out var bias))
+        {
+            overY += bias.Yaw;
+            overP += bias.Pitch;
+        }
+        overP = MathF.Max(-89f, MathF.Min(89f, overP));
 
         pool.WriteAimSlot(slot, botKey, enabled: true, pitch: overP, yaw: overY);
         _armed = true;
@@ -325,10 +351,16 @@ public sealed class AimController
     /// from the active weapon's designer name; null/missing (mid-equip,
     /// knife out) reads as 1.0 — no penalty. Snipers get a discount:
     /// long range is their job.</summary>
-    private static float FarClassMult(CCSPlayerPawn pawn)
+    /// <summary>Active weapon designer name (e.g. "weapon_ak47"), or null
+    /// mid-equip / no weapon. Read once per tick, shared by the range-class
+    /// multiplier and the structural-bias lookup.</summary>
+    private static string? ActiveWeaponName(CCSPlayerPawn pawn)
     {
-        string? name = null;
-        try { name = pawn.WeaponServices?.ActiveWeapon?.Value?.DesignerName; } catch { }
+        try { return pawn.WeaponServices?.ActiveWeapon?.Value?.DesignerName; } catch { return null; }
+    }
+
+    private static float FarClassMult(string? name)
+    {
         if (string.IsNullOrEmpty(name)) return 1.0f;
         switch (name)
         {
