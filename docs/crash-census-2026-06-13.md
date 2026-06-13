@@ -109,3 +109,27 @@ frames aren't in it).
 (ReplicaPaints ApplyAll / agent-model SetModel, then AimController) in a
 dedicated window and watching whether crashes stop; or symbolize the managed
 frame. 17 reproducible dumps are archived in `crash-reports/dumps/`.
+
+## RESOLVED — knife ChangeSubclass (2026-06-13 PM)
+
+Binary-bisected to ground truth. The use-after-free is **ReplicaPaints' knife
+skin application** — `weapon.AcceptInput("ChangeSubclass", <defindex>)` swaps
+the weapon's class/model, which rebuilds the viewmodel animation graph; the
+engine UAF-crashes walking the freed node (`libanimationsystem+0x60cdf1`).
+
+Proof: with `enable_knives=false` and ReplicaPaints otherwise fully active
+(weapon/glove/sticker skins ON, bots + humans), the server ran 29 min / 21
+rounds under normal load with ZERO crashes; with knives ON it crashed every
+~10 min. `enable_knives` now defaults OFF (a config regen can't reintroduce
+it). Weapon/glove/sticker skins are attribute writes — unaffected, kept ON.
+
+Earlier hypotheses were wrong and are recorded so they aren't re-tried:
+- **Agent SetModel** — red herring; crash persisted with agents disabled.
+  (Agents stay off anyway — never used, and they leave cross-team stale
+  models on team-swap, e.g. a CT wearing a T model.)
+- **Timing staggers** (#58/#199/fc7d2d1/ecad914), **per-pawn redundant-
+  SetModel guard**, **pre-spawn OnEntityCreated** (this one caused an
+  INSTANT crash-loop) — all missed; the operation, not its timing, was the
+  problem.
+
+Knives stay stock until a ChangeSubclass/SetModel-free knife-skin path exists.
