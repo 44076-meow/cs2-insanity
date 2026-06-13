@@ -15,15 +15,21 @@ public sealed class Settings
     [JsonPropertyName("enable_weapons")]
     public bool EnableWeapons { get; set; } = true;
 
-    // Knife skins (#11 history): the OLD path used AcceptInput("ChangeSubclass")
-    // to swap a LIVE knife's class/model — that rebuilt the viewmodel animation
-    // graph in place and the engine use-after-free-crashed walking it
-    // (libanimationsystem+0x60cdf1). FIXED by switching to GIVE the correct
-    // knife item (Remove default + GiveNamedItem) so the entity is born with
-    // the right model — no in-place rebuild. Validated ~3h with no @60cdf1.
-    // Safe to keep ON. (See ApplyToWeapon knife branch.)
+    // Knife skins — DEFAULT OFF (#11). Two failed paths so far:
+    //   1. AcceptInput("ChangeSubclass") on the live knife → rebuilds the
+    //      viewmodel anim graph in place → engine use-after-free crash
+    //      (libanimationsystem+0x60cdf1, ~every 10 min).
+    //   2. Remove default knife + GiveNamedItem (the "give it fresh" idea —
+    //      sound in principle: a born-correct entity has no in-place rebuild)
+    //      but THIS impl is BROKEN: the Remove lands, the give doesn't produce
+    //      a working knife → players end up with NO knife, and it still
+    //      crashed (dump 20:15). Needs a correct give (right API/timing —
+    //      e.g. don't Remove the live entity; give via ItemServices on a
+    //      clean spawn; verify the new knife exists before dropping the old).
+    // Until a working give path exists, OFF = stock knives, everything else
+    // (weapon/glove/sticker skins) on and stable.
     [JsonPropertyName("enable_knives")]
-    public bool EnableKnives { get; set; } = true;
+    public bool EnableKnives { get; set; } = false;
 
     [JsonPropertyName("enable_gloves")]
     public bool EnableGloves { get; set; } = true;
