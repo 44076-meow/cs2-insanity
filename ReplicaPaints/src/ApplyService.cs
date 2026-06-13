@@ -468,14 +468,40 @@ public sealed class ApplyService
         if (agent.Team == "T"  && team != CsTeam.Terrorist)         return;
         if (agent.Team == "CT" && team != CsTeam.CounterTerrorist)  return;
 
+        // #11 crash fix: SetModel frees+rebuilds the pawn's animation graph.
+        // ApplyAll re-runs on EVERY round-prestart (plus the staggered spawn
+        // path), so without this guard we re-SetModel the SAME agent model
+        // onto the SAME living pawn round after round — each one a fresh
+        // free+rebuild the engine can crash on when its animation tree walk
+        // races the free (the use-after-free in libanimationsystem confirmed
+        // by 17 minidumps, owner-confirmed culprit). The model doesn't change
+        // round-to-round, so set it ONCE per pawn instance and never churn it
+        // again. Keyed by the native pawn handle (unique per spawn); a
+        // recycled handle at worst costs one cosmetic re-set, never a crash.
+        // Prior fixes (#58/#199/staggers) only moved WHEN SetModel ran — this
+        // cuts HOW MANY, the angle not tried before.
+        var key = pawn.Handle;
+        if (_agentModelByPawn.TryGetValue(key, out var cur) && cur == agent.Model)
+            return;
+
         try
         {
             pawn.SetModel(agent.Model);
+            _agentModelByPawn[key] = agent.Model;
+            if (_agentModelByPawn.Count > 256) PruneAgentModelMap(key, agent.Model);
         }
         catch (Exception ex)
         {
             Log.Debug($"ApplyAgent SetModel('{agent.Model}'): {ex.Message}");
         }
+    }
+
+    // Per-pawn agent-model memo for the #11 redundant-SetModel guard.
+    private readonly Dictionary<nint, string> _agentModelByPawn = new();
+    private void PruneAgentModelMap(nint keep, string keepVal)
+    {
+        _agentModelByPawn.Clear();
+        _agentModelByPawn[keep] = keepVal;
     }
 
     private int ChooseAgent(CCSPlayerController player, PlayerKind kind, CsTeam team)
