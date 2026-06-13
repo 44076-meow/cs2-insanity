@@ -478,6 +478,13 @@ public sealed class ApplyService
     /// up automatically on the next frame.</summary>
     private void ApplyAgent(CCSPlayerController player, CCSPlayerPawn pawn, PlayerKind kind)
     {
+        // NOTE (2026-06-13 RESOLUTION): the #11 animation-UAF crasher was NOT
+        // this agent SetModel — it was the KNIFE ChangeSubclass (AcceptInput,
+        // see ApplyToWeapon), confirmed by 29min/21rounds crash-free with
+        // enable_knives=false while weapons/gloves/agents-state unchanged.
+        // Agent apply stays gated below mostly because the owner never used
+        // agents and they leave cross-team stale models on team-swap; it is
+        // NOT the crash. Keep this in mind before "re-fixing" agents.
         // #11 — agent player-model apply DISABLED. pawn.SetModel rebuilds the
         // pawn's animation graph; the engine's animation tree walk races that
         // free into a use-after-free crash (libanimationsystem+0x60cdf1, 18+
