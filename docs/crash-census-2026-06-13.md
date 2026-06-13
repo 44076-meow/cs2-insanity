@@ -39,8 +39,10 @@ aimed at the wrong write: it's not the *weapon* skin apply that faults, it's
 the **agent (player-model) application** path — `SetModel`/bodygroup on the
 pawn while the animation graph isn't in a state that tolerates it.
 
-The 12:52 console line `Long frame (FreezePeriod): 26` is the symptom: the
-main thread stalled hard in the animation system right before the GPF.
+The 12:52 console line `Long frame (FreezePeriod): 26.08ms` is NOT the cause —
+that's routine sub-frame jitter (freeze-period frames run 16-30ms). The crash
+is purely the animation GPF; the long frame is coincidental. (Corrected from an
+earlier misread of '26' as seconds.)
 
 ### Options (need owner call — not changed blind during live play)
 

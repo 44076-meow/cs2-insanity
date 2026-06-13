@@ -54,9 +54,12 @@ dedik_pid() {
 # ---- anomaly tailer (background sub-job) ------------------------------------
 # Patterns worth a trail even without a crash. fflush via grep --line-buffered.
 start_anomaly_tail() {
+  # Note: routine freeze-period frames are 16-30ms — noise. Only flag a
+  # Long frame when its ms value is >=100ms (3+ integer digits), i.e. a real
+  # stall worth a trail. Everything else here is genuinely abnormal.
   ( tail -F "$SERVER_LOG" 2>/dev/null \
     | grep --line-buffered -iE \
-        'Long frame|FATAL|Watchdog|Segmentation|exception|assert|cannot|null ref|Unhandled|team_enforce_giveup|husk_sweep|GHOST|HUSK|out of memory' \
+        'Long frame[^:]*: [0-9]{3,}\.[0-9]+ms|FATAL|Watchdog|Segmentation|exception|assert|null ref|Unhandled|team_enforce_giveup|husk_sweep|GHOST|HUSK|out of memory' \
     | while IFS= read -r line; do
         printf '[%s] %s\n' "$(stamp)" "$line" >> "$ANOMALY_LOG"
       done ) &
