@@ -595,15 +595,18 @@ public sealed class FakeClientManager : IDisposable
             { "botId", id }, { "personaId", fc.PersonaId }, { "reason", reason },
             { "name", fc.Name }, { "slot", fc.Slot } });
         try {
-            // Restored from b696a39 (#196): kick by slot, no IsBot gate.
-            // The Hider flips m_bFakePlayer, so `ctrl.IsBot` reads false
-            // for managed bots and the old gate skipped the kick; name-
-            // based `bot_kick` also missed overwritten names. `kickid`
-            // works regardless of fake-player state (userid == slot,
-            // verified in match-log connect lines).
+            // b696a39 lineage (#196), corrected: kick by USERID, no IsBot
+            // gate. The Hider flips m_bFakePlayer so `ctrl.IsBot` reads
+            // false (old gate skipped the kick); name-based `bot_kick`
+            // missed overwritten names. And `kickid` takes a USERID, not
+            // a slot — they coincide on a fresh boot (which made slot
+            // kicks look correct) and drift apart once slots recycle:
+            // slot kicks then silently miss and the un-kicked bots pile
+            // up as unmanaged team-roster ghosts (6/25-style alive
+            // counters, reproduced 2026-06-13).
             var ctrl = Utilities.GetPlayerFromSlot(fc.Slot);
             if (ctrl != null && ctrl.IsValid)
-                Server.ExecuteCommand($"kickid {fc.Slot}");
+                Server.ExecuteCommand($"kickid {ctrl.UserId ?? fc.Slot}");
         } catch { }
         // Quota tracks (active+pending) — Despawn drops one, re-assert.
         EnforceBotQuota();
@@ -633,7 +636,7 @@ public sealed class FakeClientManager : IDisposable
             // kicking them again just spams `userid not found`. Only
             // sweep slots the engine still considers connected.
             if (c.Connected != PlayerConnectedState.Connected) continue;
-            Server.ExecuteCommand($"kickid {slot}");
+            Server.ExecuteCommand($"kickid {c.UserId ?? slot}");
             swept++;
         }
         if (swept > 0)
@@ -717,12 +720,20 @@ public sealed class FakeClientManager : IDisposable
             //     Any further OnClientDisconnect goes through real-path.
             _pool.WriteMapchangeFlag(false);
 
-            // (6) Kick zombie engine clients by slot id. For fake-clients,
-            //     userid == slot; engine ignores invalid slots without error.
+            // (6) Kick zombie engine clients. kickid takes a USERID — it
+            //     only equals the slot on a fresh boot, so resolve the
+            //     live controller's UserId and fall back to the slot for
+            //     husks with no resolvable controller (engine ignores
+            //     invalid ids without error).
             int kicks = 0;
             foreach (var slot in zombieSlots) {
                 try {
-                    Server.ExecuteCommand($"kickid {slot}");
+                    int kid = slot;
+                    try {
+                        var zc = Utilities.GetPlayerFromSlot(slot);
+                        if (zc != null && zc.IsValid && zc.UserId.HasValue) kid = zc.UserId.Value;
+                    } catch { }
+                    Server.ExecuteCommand($"kickid {kid}");
                     kicks++;
                 } catch (Exception ex) {
                     Log.Debug($"OnMapStart kickid slot={slot}: {ex.Message}");
