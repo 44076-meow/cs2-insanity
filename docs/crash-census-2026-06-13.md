@@ -75,3 +75,37 @@ first. Not a plugin bug.
 - Pre-existing `scripts/mode-b-watchdog.py` already auto-*restarts* on this
   crash family but was not running tonight — complementary to crash-watch
   (restart vs. analyze). Worth enabling alongside.
+
+## FORENSIC UPDATE — minidump stackwalk (2026-06-13 PM)
+
+All 17 dumps (Jun 10 → today) were recovered from `/tmp/dumps` (they were
+never deleted — the earlier "0 files" was a perms blindspot: the dir is
+`frad70:frad70 0750`, our reader ran as another user). Walked with
+`minidump-stackwalk` (rust-minidump 0.26).
+
+**Every dump has a byte-identical crashing stack:**
+- `SIGSEGV`, instruction `mov rax, qword [rdi]` at `libanimationsystem.so+0x60cdf1`,
+  `rdi` = a garbage / non-canonical pointer (e.g. `0x4253ef6fc080ae5a`,
+  `0x42887abd3fae90b3`) → **use-after-free / type-confusion**: a freed object
+  whose memory now holds non-pointer data is dereferenced.
+- Frames 0–11 are a recursive animation-node tree walk
+  (`0x61880d ↔ 0x618e87 ↔ 0x63612a ↔ 0x61067f`) — the engine traverses a
+  freed/stale animation node.
+- Reached on the main-thread **GameFrame tick via a CounterStrikeSharp-
+  dispatched managed callback** — `counterstrikesharp.so` (frames 27 & 30)
+  is invariant across ALL dumps. The Metamod plugin SourceHook trampoline next
+  to it VARIES by dump (multiaddonmanager on Jun 10, replicahider's GameFrame
+  hook today) → that frame is **incidental, not causal**. The crash predates
+  today's GameFrame hook.
+
+**Conclusion:** a managed (CSSharp) plugin operation during the freeze/respawn
+tick frees or invalidates an animation node that the engine then walks. NOT
+specifically the agent-model apply and NOT weapon-skin timing (which is why
+#199's weapon-apply queue didn't stop it) — the broader respawn/model churn.
+The exact managed callback can't be named from the native minidump (managed
+frames aren't in it).
+
+**Next:** bisect by selectively disabling managed per-tick/respawn mutators
+(ReplicaPaints ApplyAll / agent-model SetModel, then AimController) in a
+dedicated window and watching whether crashes stop; or symbolize the managed
+frame. 17 reproducible dumps are archived in `crash-reports/dumps/`.

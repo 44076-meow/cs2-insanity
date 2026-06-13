@@ -68,23 +68,25 @@ start_anomaly_tail() {
 
 # ---- minidump grabber (background sub-job) ----------------------------------
 # CS2's breakpad writes /tmp/dumps/*.dmp on a crash, UPLOADS it out-of-process,
-# then DELETES it within ~1-2s ("upload yes: success" → gone). A poll-on-death
-# loop misses that window. Watch the dir with inotify and hard-link/copy each
-# .dmp to crash-reports/dumps/ the instant it appears — before breakpad reaps
-# it. This is what makes "wait for the minidump" actually yield a local file.
+# then DELETES it within ~1-2s ("upload yes: success" → gone). We must copy it
+# inside that window. inotify is NOT reliable here: breakpad recreates the
+# /tmp/dumps directory on crash, so a watch on the old inode goes deaf. A tight
+# poll (0.3s) over the dir's CURRENT contents has no such lifecycle problem and
+# easily beats the 1-2s delete. This is what makes "wait for the minidump"
+# actually yield a local file (epic #11).
 start_dump_grabber() {
   mkdir -p "$OUT_ROOT/dumps"
-  command -v inotifywait >/dev/null 2>&1 || { echo ""; return; }
-  ( inotifywait -m -q -e create -e moved_to --format '%f' "$DUMPS_DIR" 2>/dev/null \
-    | while IFS= read -r fn; do
-        case "$fn" in
-          *.dmp)
-            # cp immediately; the source may vanish mid-copy — that's fine.
-            cp -f "$DUMPS_DIR/$fn" "$OUT_ROOT/dumps/$fn" 2>/dev/null \
-              && printf '[%s] GRABBED minidump %s\n' "$(stamp)" "$fn" >> "$ANOMALY_LOG"
-            ;;
-        esac
-      done ) &
+  ( while true; do
+      for f in "$DUMPS_DIR"/*.dmp; do
+        [ -e "$f" ] || continue
+        bn=$(basename "$f")
+        if [ ! -e "$OUT_ROOT/dumps/$bn" ]; then
+          cp -f "$f" "$OUT_ROOT/dumps/$bn" 2>/dev/null \
+            && printf '[%s] GRABBED minidump %s\n' "$(stamp)" "$bn" >> "$ANOMALY_LOG"
+        fi
+      done
+      sleep 0.3
+    done ) &
   echo $!
 }
 
