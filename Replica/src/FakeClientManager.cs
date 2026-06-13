@@ -224,6 +224,87 @@ public sealed class FakeClientManager : IDisposable
     public FakeClient? FindBySlot(int slot)
         => _byId.Values.FirstOrDefault(b => b.Slot == slot);
 
+    /// <summary>Single source of truth for "is this controller a real human
+    /// we must never touch". Two signals: the connect-time human registry
+    /// and the engine's AuthorizedSteamID (set only for authenticated
+    /// clients, never for fakes). Was inlined in 4+ places (enforcer, kick
+    /// sweep, adopt, husk sweep) — centralized here so a future tweak can't
+    /// drift between call sites (#9 refactor).</summary>
+    public bool IsHuman(CCSPlayerController c)
+        => _humanNamesBySlot.ContainsKey(c.Slot) || c.AuthorizedSteamID != null;
+
+    /// <summary>One-shot ground-truth diagnostic (replica_doctor). Walks
+    /// EVERY controller entity and classifies it against our managed map,
+    /// so phantom team-roster members (ghosts: live but unmanaged, or
+    /// husks: disconnected-but-present) are counted directly instead of
+    /// inferred from the lying `status`/`scored with N` numbers. Read-only.</summary>
+    public List<string> BuildDoctorReport()
+    {
+        var lines = new List<string>();
+        string[] teamName = { "Unassigned", "Spectator", "T", "CT" };
+        var liveByTeam  = new int[4];   // managed fakes per team
+        var ghostByTeam = new int[4];   // valid, connected, NOT managed, NOT human
+        int humans = 0, husks = 0, total = 0;
+        var flagged = new List<string>();
+
+        // Scan all 64 slots directly (not Utilities.GetPlayers, which can
+        // skip mid-disconnect controllers) so the doctor finds husks the
+        // same way SweepRosterHusks/DespawnAll do — it must catch exactly
+        // what the cleanup paths target, or it can't be trusted as a gauge.
+        for (int slot = 0; slot < 64; slot++)
+        {
+            CCSPlayerController? c = null;
+            try { c = Utilities.GetPlayerFromSlot(slot); } catch { }
+            if (c == null || !c.IsValid || c.IsHLTV) continue;
+            total++;
+            int team = (int)c.TeamNum;
+            if (team < 0 || team > 3) team = 0;
+
+            string nm; try { nm = c.PlayerName ?? "<null>"; } catch { nm = "<throw>"; }
+
+            bool disconnected = false;
+            try { disconnected = c.Connected == PlayerConnectedState.Disconnected; } catch { }
+
+            if (IsHuman(c)) { humans++; continue; }
+
+            if (disconnected)
+            {
+                husks++;
+                flagged.Add($"  HUSK   slot={c.Slot,-2} team={teamName[team],-10} name='{nm}' (disconnected but present)");
+                continue;
+            }
+
+            bool managed = _byId.Values.Any(b => b.Slot == c.Slot);
+            if (managed) { liveByTeam[team]++; }
+            else
+            {
+                ghostByTeam[team]++;
+                string conn; try { conn = c.Connected.ToString(); } catch { conn = "?"; }
+                flagged.Add($"  GHOST  slot={c.Slot,-2} team={teamName[team],-10} name='{nm}' conn={conn} (live but unmanaged)");
+            }
+        }
+
+        int managedTotal = _byId.Count;
+        int ghostTotal = ghostByTeam.Sum();
+        bool clean = ghostTotal == 0 && husks == 0;
+
+        lines.Add($"[doctor] {(clean ? "PASS" : "WARN")} — managed={managedTotal} "
+                + $"live-controllers={total} humans={humans} ghosts={ghostTotal} husks={husks}");
+        lines.Add($"[doctor] managed-by-team: T={liveByTeam[2]} CT={liveByTeam[3]} "
+                + $"Spec={liveByTeam[1]} Unassigned={liveByTeam[0]}");
+        if (ghostTotal > 0)
+            lines.Add($"[doctor] ghost-by-team:   T={ghostByTeam[2]} CT={ghostByTeam[3]} "
+                    + $"Spec={ghostByTeam[1]} Unassigned={ghostByTeam[0]}");
+        lines.Add($"[doctor] pending={_pendingPersonaIds.Count} mapchange={IsMapchangeInProgress} "
+                + $"hider={IsHiderActive()} fleetTarget={Config.FleetSize}"
+                + (Config.HasFleetSizeOverride ? $" override={Config.FleetSizeOverride}" : ""));
+        foreach (var f in flagged.Take(24)) lines.Add(f);
+        if (flagged.Count > 24) lines.Add($"  … +{flagged.Count - 24} more");
+        if (clean) lines.Add("[doctor] roster is clean: every non-human controller is a managed bot, no husks.");
+        else lines.Add("[doctor] ACTION: ghosts/husks present — run `replica_kick_bots respawn` or investigate flagged slots.");
+        return lines;
+    }
+
     public void OnLoad(string csVersion)
     {
         // PoolMmap drives the ReplicaHider C++ side.
@@ -476,7 +557,7 @@ public sealed class FakeClientManager : IDisposable
         foreach (var c in Utilities.GetPlayers())
         {
             if (c == null || !c.IsValid || c.IsHLTV) continue;
-            if (_humanNamesBySlot.ContainsKey(c.Slot) || c.AuthorizedSteamID != null) continue;
+            if (IsHuman(c)) continue;
             if (_byId.Values.Any(b => b.Slot == c.Slot)) continue;
             // Make sure pool reflects management before AdoptController.
             if (_pool.Read(c.Slot) == 0) _pool.Write(c.Slot, 1);
@@ -640,10 +721,10 @@ public sealed class FakeClientManager : IDisposable
         int swept = 0;
         for (int slot = 0; slot < 64; slot++)
         {
-            if (_humanNamesBySlot.ContainsKey(slot) || managedSlots.Contains(slot)) continue;
+            if (managedSlots.Contains(slot)) continue;
             CCSPlayerController? c = null;
             try { c = Utilities.GetPlayerFromSlot(slot); } catch { }
-            if (c == null || !c.IsValid || c.AuthorizedSteamID != null) continue;
+            if (c == null || !c.IsValid || IsHuman(c)) continue;
             // Post-kick controllers linger as "valid" for a few frames —
             // kicking them again just spams `userid not found`. Only
             // sweep slots the engine still considers connected.
@@ -1003,11 +1084,9 @@ public sealed class FakeClientManager : IDisposable
         int removed = 0;
         for (int slot = 0; slot < 64 && removed < MaxHuskRemovalsPerPass; slot++)
         {
-            if (_humanNamesBySlot.ContainsKey(slot)) continue;
             CCSPlayerController? c = null;
             try { c = Utilities.GetPlayerFromSlot(slot); } catch { }
-            if (c == null || !c.IsValid) continue;
-            if (c.AuthorizedSteamID != null) continue;
+            if (c == null || !c.IsValid || IsHuman(c)) continue;
             if (_byId.Values.Any(b => b.Slot == slot)) continue;
             bool husk;
             try { husk = c.Connected == PlayerConnectedState.Disconnected; }

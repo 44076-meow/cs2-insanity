@@ -449,6 +449,14 @@ public sealed class ReplicaPlugin : BasePlugin
         info.ReplyToCommand($"[Replica] hider active={_manager.IsHiderActive()}");
     }
 
+    [ConsoleCommand("replica_doctor", "Ground-truth roster/fleet diagnostic — managed vs live controllers vs ghosts/husks")]
+    [RequiresPermissions("@css/generic")]
+    public void OnDoctor(CCSPlayerController? caller, CommandInfo info)
+    {
+        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
+        foreach (var line in _manager.BuildDoctorReport()) info.ReplyToCommand(line);
+    }
+
     // P/12 Reveal Finale entry. Two registrations:
     //   - `replica_reveal` — rcon / server console
     //   - `css_reveal`      — chat trigger `!reveal` (CSSharp's css_ prefix
