@@ -122,6 +122,18 @@ public sealed class PaintsDatabase
 {
     public List<PaintEntry>     Weapons   { get; private set; } = new();
     public List<KnifeEntry>     Knives    { get; private set; } = new();
+
+    /// <summary>Knife class name (e.g. "weapon_knife_karambit") for a defindex,
+    /// or null. Used to GIVE the correct knife item (#11 fix) instead of
+    /// ChangeSubclass-swapping a live entity (which rebuilt the anim graph and
+    /// crashed).</summary>
+    public string? KnifeWeaponName(int defindex)
+    {
+        foreach (var k in Knives)
+            if (k.Defindex == defindex && !string.IsNullOrEmpty(k.WeaponName))
+                return k.WeaponName;
+        return null;
+    }
     public List<GloveEntry>     Gloves    { get; private set; } = new();
     public List<AgentEntry>     Agents    { get; private set; } = new();
     public List<MusicKitEntry>  MusicKits { get; private set; } = new();

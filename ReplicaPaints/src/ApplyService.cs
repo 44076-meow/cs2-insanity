@@ -578,12 +578,25 @@ public sealed class ApplyService
             int chosenKnifeDef = ChooseKnifeDefindex(player, kind, team);
             if (chosenKnifeDef <= 0) return;
 
-            if (weapon.AttributeManager.Item.ItemDefinitionIndex != (ushort)chosenKnifeDef)
+            // #11 fix: do NOT ChangeSubclass a live knife entity — that swap
+            // rebuilds the viewmodel animation graph in place and the engine
+            // use-after-free crashes walking it (libanimationsystem+0x60cdf1,
+            // 18+ dumps). Instead GIVE the correct knife item: the new entity
+            // is born with the right model, no in-place graph rebuild. The
+            // given knife re-enters ApplyToWeapon on its own spawn event with
+            // a matching defindex and gets painted then.
+            var wantClass = _db.KnifeWeaponName(chosenKnifeDef);
+            if (weapon.AttributeManager.Item.ItemDefinitionIndex != (ushort)chosenKnifeDef
+                && !string.IsNullOrEmpty(wantClass)
+                && !string.Equals(weapon.DesignerName, wantClass, StringComparison.Ordinal))
             {
-                // ChangeSubclass swaps the underlying weapon class. Without
-                // this the defindex change alone leaves model + viewmodel
-                // out of sync.
-                weapon.AcceptInput("ChangeSubclass", value: chosenKnifeDef.ToString());
+                try
+                {
+                    weapon.Remove();                 // drop the default knife entity
+                    player.GiveNamedItem(wantClass); // born with the right model
+                }
+                catch (Exception ex) { Log.Debug($"knife give '{wantClass}': {ex.Message}"); }
+                return;   // paint happens when the given knife spawns
             }
             weapon.AttributeManager.Item.ItemDefinitionIndex = (ushort)chosenKnifeDef;
             weapon.AttributeManager.Item.EntityQuality       = 3;

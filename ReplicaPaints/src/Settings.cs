@@ -15,14 +15,15 @@ public sealed class Settings
     [JsonPropertyName("enable_weapons")]
     public bool EnableWeapons { get; set; } = true;
 
-    // DEFAULT OFF (#11): knife skins go through AcceptInput("ChangeSubclass"),
-    // a weapon class/model swap that rebuilds the viewmodel animation graph —
-    // the engine use-after-free crashes walking it (libanimationsystem
-    // +0x60cdf1). CONFIRMED: 29min/21rounds crash-free with this off while
-    // weapon/glove/sticker skins stayed on; crashed every ~10min with it on.
-    // Re-enabling needs a SetModel/ChangeSubclass-free knife-skin path.
+    // Knife skins (#11 history): the OLD path used AcceptInput("ChangeSubclass")
+    // to swap a LIVE knife's class/model — that rebuilt the viewmodel animation
+    // graph in place and the engine use-after-free-crashed walking it
+    // (libanimationsystem+0x60cdf1). FIXED by switching to GIVE the correct
+    // knife item (Remove default + GiveNamedItem) so the entity is born with
+    // the right model — no in-place rebuild. Validated ~3h with no @60cdf1.
+    // Safe to keep ON. (See ApplyToWeapon knife branch.)
     [JsonPropertyName("enable_knives")]
-    public bool EnableKnives { get; set; } = false;
+    public bool EnableKnives { get; set; } = true;
 
     [JsonPropertyName("enable_gloves")]
     public bool EnableGloves { get; set; } = true;
