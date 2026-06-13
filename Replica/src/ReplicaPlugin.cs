@@ -457,6 +457,30 @@ public sealed class ReplicaPlugin : BasePlugin
         foreach (var line in _manager.BuildDoctorReport()) info.ReplyToCommand(line);
     }
 
+    [ConsoleCommand("replica_aim_structural",
+        "Toggle recorded-human per-weapon aim bias on bots (record→profile→bot, #44)")]
+    [RequiresPermissions("@css/cheats")]
+    [CommandHelper(minArgs: 0, usage: "[on|off|reload]")]
+    public void OnAimStructural(CCSPlayerController? caller, CommandInfo info)
+    {
+        var arg = info.ArgCount >= 2 ? info.GetArg(1).Trim().ToLowerInvariant() : "";
+        if (arg == "reload")
+        {
+            StructuralProfileStore.Load();
+            // Re-attach to every live bot so a reload takes effect without respawn.
+            if (_manager != null)
+                foreach (var fc in _manager.All)
+                    fc.Aim.StructuralBias = StructuralProfileStore.TryGet(fc.Name);
+            info.ReplyToCommand($"[Replica] structural profiles reloaded: {StructuralProfileStore.LoadedProfiles} persona(s) from {StructuralProfileStore.LoadedFrom ?? "(none)"}");
+            return;
+        }
+        if (arg == "on")  AimController.StructuralEnabled = true;
+        if (arg == "off") AimController.StructuralEnabled = false;
+        info.ReplyToCommand($"[Replica] structural aim = {(AimController.StructuralEnabled ? "ON" : "OFF")} "
+                          + $"(profiles loaded: {StructuralProfileStore.LoadedProfiles}; "
+                          + $"usage: replica_aim_structural [on|off|reload])");
+    }
+
     // P/12 Reveal Finale entry. Two registrations:
     //   - `replica_reveal` — rcon / server console
     //   - `css_reveal`      — chat trigger `!reveal` (CSSharp's css_ prefix
