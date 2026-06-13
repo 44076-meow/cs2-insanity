@@ -245,6 +245,12 @@ public sealed class ApplyService
     /// them so we don't double-schedule.</summary>
     public void OnRoundPrestart()
     {
+        // Reset the per-pawn knife-give guard each round: pawns persist across
+        // rounds (same handle), so without this the give fires at most once
+        // ever and a later round leaves the default knife. Clearing here lets
+        // the give fire once PER ROUND per pawn (the default knife respawns
+        // each round and needs the custom knife re-given).
+        _knifeGivenByPawn.Clear();
         foreach (var player in Utilities.GetPlayers())
         {
             if (!ShouldApply(player, out _)) continue;
@@ -546,6 +552,9 @@ public sealed class ApplyService
 
     // Per-pawn agent-model memo for the #11 redundant-SetModel guard.
     private readonly Dictionary<nint, string> _agentModelByPawn = new();
+    // Per-pawn "already gave the custom knife" guard (#11 v2) — give once per
+    // pawn so the default knife doesn't re-trigger a give every apply pass.
+    private readonly HashSet<nint> _knifeGivenByPawn = new();
     private void PruneAgentModelMap(nint keep, string keepVal)
     {
         _agentModelByPawn.Clear();
@@ -585,19 +594,43 @@ public sealed class ApplyService
             // is born with the right model, no in-place graph rebuild. The
             // given knife re-enters ApplyToWeapon on its own spawn event with
             // a matching defindex and gets painted then.
+            // v2: GIVE the correct knife — do NOT Remove() the live default
+            // knife (v1 did, → zero knives + a crash: removing the actively-
+            // animated entity is itself unsafe). A fresh GiveNamedItem entity
+            // is born with the right model (no in-place ChangeSubclass graph
+            // rebuild → no #11 UAF). Give exactly ONCE per pawn instance: the
+            // given knife re-enters here with a matching defindex (→ paint, no
+            // re-give); the per-pawn guard stops the default knife from
+            // re-triggering a give every pass (which would pile up knives).
             var wantClass = _db.KnifeWeaponName(chosenKnifeDef);
+            Log.Info($"[knifedbg] slot={player.Slot} designer={weapon.DesignerName} "
+                   + $"curDef={weapon.AttributeManager.Item.ItemDefinitionIndex} chosen={chosenKnifeDef} want={wantClass ?? "null"}");
             if (weapon.AttributeManager.Item.ItemDefinitionIndex != (ushort)chosenKnifeDef
                 && !string.IsNullOrEmpty(wantClass)
                 && !string.Equals(weapon.DesignerName, wantClass, StringComparison.Ordinal))
             {
-                try
+                var pawn = player.PlayerPawn?.Value;
+                var pkey = pawn != null ? pawn.Handle : (nint)0;
+                Log.Info($"[knifedbg] give-branch slot={player.Slot} pkey={pkey} alreadyGiven={(pkey != 0 && _knifeGivenByPawn.Contains(pkey))}");
+                if (pkey != 0 && !_knifeGivenByPawn.Contains(pkey))
                 {
-                    weapon.Remove();                 // drop the default knife entity
-                    player.GiveNamedItem(wantClass); // born with the right model
+                    _knifeGivenByPawn.Add(pkey);
+                    if (_knifeGivenByPawn.Count > 256) _knifeGivenByPawn.Clear();
+                    // GiveNamedItem is a silent no-op while the knife slot is
+                    // occupied — free it first by removing the default knife,
+                    // THEN give. (v1's "give-after-remove" was never actually
+                    // exercised: the sticky guard blocked the give every time.)
+                    try
+                    {
+                        weapon.Remove();
+                        player.GiveNamedItem(wantClass);
+                        Log.Info($"[knifedbg] Remove+Give({wantClass}) OK slot={player.Slot}");
+                    }
+                    catch (Exception ex) { Log.Info($"[knifedbg] Remove+Give EXC: {ex.Message}"); }
                 }
-                catch (Exception ex) { Log.Debug($"knife give '{wantClass}': {ex.Message}"); }
-                return;   // paint happens when the given knife spawns
+                return;   // paint happens when the given knife spawns (def matches)
             }
+            Log.Info($"[knifedbg] PAINT-path slot={player.Slot} def={weapon.AttributeManager.Item.ItemDefinitionIndex}");
             weapon.AttributeManager.Item.ItemDefinitionIndex = (ushort)chosenKnifeDef;
             weapon.AttributeManager.Item.EntityQuality       = 3;
             weapon.AttributeManager.Item.AttributeList.Attributes.RemoveAll();
