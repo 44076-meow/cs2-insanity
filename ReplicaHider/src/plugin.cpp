@@ -27,6 +27,7 @@
 #include <chrono>
 #include <set>
 #include <string>
+#include <unordered_map>
 
 #include <iserver.h>
 #include <eiface.h>
@@ -61,6 +62,7 @@ SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0,
 SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0,
                    CPlayerSlot, char const*, int, uint64);
 SH_DECL_HOOK1(IVEngineServer, CreateFakeClient, SH_NOATTRIB, 0, CPlayerSlot, const char*);
+SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 // Parameterized variant on INetworkGameServer (parent of CNetworkGameServerBase).
 // Engine logs "CNetworkServerService::StartChangeLevel( (no landmark) )" at this
 // call-site, then disconnects clients in the same code path. PRE-hooking here
@@ -107,6 +109,16 @@ PLUGIN_EXPOSE(ReplicaHiderPlugin, g_Plugin);
 IVEngineServer*     engine      = nullptr;
 ICvar*              icvar       = nullptr;
 IServerGameClients* gameclients = nullptr;
+IServerGameDLL*     server      = nullptr;
+
+// Slots whose CServerSideClient we byte-flipped, keyed to the exact client
+// pointer. Needed by the unflip-on-unmark sweep (Hook_GameFrame): when the
+// C# side unmarks a slot (Despawn), we restore m_bFakePlayer=0x01 on the
+// SAME client instance before its kick lands, so the engine's bot cleanup
+// recognizes it and recycles the slot — flipped clients skipped that path
+// and lingered as roster husks / zombie slots. Pointer identity guards a
+// recycled slot: a different client there means our entry is stale.
+static std::unordered_map<int, void*> g_FlippedClients;
 extern INetworkServerService* g_pNetworkServerService;
 
 static CServerSideClient* ResolveClientBySlot(int slot) {
@@ -204,6 +216,7 @@ void ReplicaHiderPlugin::Hook_OnClientConnected_Post(CPlayerSlot slot, const cha
     auto* raw = reinterpret_cast<unsigned char*>(pClient);
     if (raw[kFakePlayerOffset] != 0x01) RETURN_META(MRES_IGNORED);  // idempotent
     raw[kFakePlayerOffset] = 0;
+    g_FlippedClients[idx] = pClient;
 
     // m_Name already carries persona (engine got it via CFC override), but
     // call Set anyway to keep CUtlString::m_pString consistent with what we
@@ -233,6 +246,7 @@ void ReplicaHiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char cons
 
     if (raw[kFakePlayerOffset] != 0x01) RETURN_META(MRES_IGNORED);  // already flipped
     raw[kFakePlayerOffset] = 0;
+    g_FlippedClients[idx] = pClient;
     const char* persona = m_Pool.GetName(idx);
     if (persona) OverwriteEngineName(this, pClient, persona);
     META_CONPRINTF("[ReplicaHider] CPiS safety-net slot=%d persona='%s'\n",
@@ -314,8 +328,41 @@ CPlayerSlot ReplicaHiderPlugin::Hook_CreateFakeClient_Pre(const char* netname) {
                                 &IVEngineServer::CreateFakeClient, (persona));
 }
 
+// Unflip-on-unmark sweep. Cheap: early-outs when no flips are registered.
+// Runs POST GameFrame every frame so a C# Despawn (unmark now, kickid at
+// +2 ticks) deterministically sees the bot bit restored before the kick
+// is processed — the engine then runs its native bot cleanup and frees
+// the slot instead of leaving a roster husk.
+void ReplicaHiderPlugin::Hook_GameFrame(bool, bool, bool) {
+    if (g_FlippedClients.empty() || !m_Pool.IsActive()) RETURN_META(MRES_IGNORED);
+    for (auto it = g_FlippedClients.begin(); it != g_FlippedClients.end(); ) {
+        const int idx = it->first;
+        auto* pClient = ResolveClientBySlot(idx);
+        if (!pClient || pClient != it->second) {
+            // Slot gone or recycled by a different client — stale entry.
+            it = g_FlippedClients.erase(it);
+            continue;
+        }
+        if (!m_Pool.IsManaged(idx)) {
+            auto* raw = reinterpret_cast<unsigned char*>(pClient);
+            if (raw[kFakePlayerOffset] == 0) {
+                raw[kFakePlayerOffset] = 0x01;
+                META_CONPRINTF("[ReplicaHider] unflip slot=%d (unmarked — restoring bot bit for clean despawn)\n", idx);
+            }
+            it = g_FlippedClients.erase(it);
+            continue;
+        }
+        ++it;
+    }
+    RETURN_META(MRES_IGNORED);
+}
+
 void ReplicaHiderPlugin::OnLevelInit(char const* pMapName, char const*, char const*,
                                       char const*, bool, bool) {
+    // Mapchange rebuilds every CServerSideClient — all flip-registry
+    // pointers are dangling by definition. CPiS re-flips and re-registers.
+    g_FlippedClients.clear();
+
     // After mapchange, CServerSideClient instances are recreated with
     // m_bFakePlayer=0x01. With bot_quota=0 (server.cfg), nothing
     // auto-spawns — FakeClientManager re-issues bot_add for each pool
@@ -413,6 +460,7 @@ bool ReplicaHiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t ma
     GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
     GET_V_IFACE_CURRENT(GetEngineFactory, icvar,  ICvar,          CVAR_INTERFACE_VERSION);
     GET_V_IFACE_ANY    (GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
+    GET_V_IFACE_ANY    (GetServerFactory, server,      IServerGameDLL,     INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY    (GetEngineFactory, g_pNetworkServerService, INetworkServerService,
                         NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
@@ -449,6 +497,8 @@ bool ReplicaHiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t ma
                 SH_MEMBER(this, &ReplicaHiderPlugin::Hook_ClientPutInServer_Post), true);
     SH_ADD_HOOK(IVEngineServer, CreateFakeClient, engine,
                 SH_MEMBER(this, &ReplicaHiderPlugin::Hook_CreateFakeClient_Pre), false /* PRE */);
+    SH_ADD_HOOK(IServerGameDLL, GameFrame, server,
+                SH_MEMBER(this, &ReplicaHiderPlugin::Hook_GameFrame), true);
     // StartChangeLevel hook registration is DEFERRED to first OnLevelInit —
     // GetIGameServer() returns null at plugin Load() time (game server not
     // yet created). After the engine creates it via StartupServer, OnLevelInit
@@ -479,6 +529,9 @@ bool ReplicaHiderPlugin::Unload(char* error, size_t maxlen) {
                    SH_MEMBER(this, &ReplicaHiderPlugin::Hook_ClientPutInServer_Post), true);
     SH_REMOVE_HOOK(IVEngineServer, CreateFakeClient, engine,
                    SH_MEMBER(this, &ReplicaHiderPlugin::Hook_CreateFakeClient_Pre), false);
+    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server,
+                   SH_MEMBER(this, &ReplicaHiderPlugin::Hook_GameFrame), true);
+    g_FlippedClients.clear();
     // Remove by id — engine may have torn down the INetworkGameServer
     // instance between our last OnLevelInit and unload. Issue #10.
     if (m_StartChangeLevelHookId != 0) {

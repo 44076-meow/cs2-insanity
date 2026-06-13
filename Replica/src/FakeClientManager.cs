@@ -606,7 +606,19 @@ public sealed class FakeClientManager : IDisposable
             // counters, reproduced 2026-06-13).
             var ctrl = Utilities.GetPlayerFromSlot(fc.Slot);
             if (ctrl != null && ctrl.IsValid)
-                Server.ExecuteCommand($"kickid {ctrl.UserId ?? fc.Slot}");
+            {
+                // UserId getter can throw on Hider-flipped fakes — an
+                // unguarded read here silently killed the WHOLE kick
+                // (caught by the outer catch, zero kickids issued).
+                int kid = fc.Slot;
+                try { kid = ctrl.UserId ?? fc.Slot; } catch { }
+                // +2 ticks: the pool unmark above is sync, the Hider's
+                // unflip sweep runs on the next GameFrame — by the time
+                // this kick is processed the engine sees a REAL bot and
+                // runs its native cleanup (no roster husk left behind).
+                Server.RunOnTick(Server.TickCount + 2,
+                    () => Server.ExecuteCommand($"kickid {kid}"));
+            }
         } catch { }
         // Quota tracks (active+pending) — Despawn drops one, re-assert.
         EnforceBotQuota();
@@ -636,7 +648,9 @@ public sealed class FakeClientManager : IDisposable
             // kicking them again just spams `userid not found`. Only
             // sweep slots the engine still considers connected.
             if (c.Connected != PlayerConnectedState.Connected) continue;
-            Server.ExecuteCommand($"kickid {c.UserId ?? slot}");
+            int sweepKid = slot;
+            try { sweepKid = c.UserId ?? slot; } catch { }
+            Server.ExecuteCommand($"kickid {sweepKid}");
             swept++;
         }
         if (swept > 0)
@@ -798,6 +812,7 @@ public sealed class FakeClientManager : IDisposable
         }
 
         DrainStalePending();
+        SweepRosterHusks();
 
         // 1-second persistent bot_quota re-assert. Engine resets quota at
         // warmup_end and round-restart; without periodic enforcement it
@@ -970,6 +985,44 @@ public sealed class FakeClientManager : IDisposable
             try { c.SwitchTeam((CsTeam)intended); }
             catch (Exception ex) { Log.Debug($"EnforceFleetTeams: switch slot={fc.Slot} → {fc.Team}: {ex.Message}"); }
         }
+    }
+
+    // ─── Roster-husk janitor ─────────────────────────────────────────────
+    // Disconnected fake controllers sometimes survive as entities and keep
+    // their team-roster membership — the scoreboard then shows phantom
+    // members ("Alive 4/8" with 4 real CTs). Two known producers: kick
+    // paths that miss (fixed: kickid-by-userid) and the engine's own bot
+    // cleanup not recognizing Hider-flipped clients (m_bFakePlayer=0, so
+    // CCSBotManager never frees them — root fixed C++-side by un-flipping
+    // on unmark; this sweep is the safety net for any remaining source).
+    // 1 Hz, ≤4 removals per pass, humans double-gated out.
+    private const int MaxHuskRemovalsPerPass = 4;
+
+    private void SweepRosterHusks()
+    {
+        int removed = 0;
+        for (int slot = 0; slot < 64 && removed < MaxHuskRemovalsPerPass; slot++)
+        {
+            if (_humanNamesBySlot.ContainsKey(slot)) continue;
+            CCSPlayerController? c = null;
+            try { c = Utilities.GetPlayerFromSlot(slot); } catch { }
+            if (c == null || !c.IsValid) continue;
+            if (c.AuthorizedSteamID != null) continue;
+            if (_byId.Values.Any(b => b.Slot == slot)) continue;
+            bool husk;
+            try { husk = c.Connected == PlayerConnectedState.Disconnected; }
+            catch { continue; }
+            if (!husk) continue;
+            try
+            {
+                c.Remove();
+                removed++;
+                Log.Info($"SweepRosterHusks: removed disconnected husk controller slot={slot}");
+            }
+            catch (Exception ex) { Log.Debug($"SweepRosterHusks slot={slot}: {ex.Message}"); }
+        }
+        if (removed > 0)
+            Telemetry.Write("husk_sweep", new Dictionary<string, object?> { { "removed", removed } });
     }
 
     private void DrainStalePending()

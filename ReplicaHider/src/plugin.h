@@ -38,6 +38,7 @@ public:
     // or falls back to a built-in roster, then SUPERSEDEs the call with
     // override netname so userinfo broadcast carries our name natively.
     CPlayerSlot Hook_CreateFakeClient_Pre(const char* netname);
+    void Hook_GameFrame(bool simulating, bool bFirstTick, bool bLastTick);
     void OnLevelInit(char const* pMapName, char const*, char const*, char const*, bool, bool) override;
 
     // Mapchange survival hook chain:
