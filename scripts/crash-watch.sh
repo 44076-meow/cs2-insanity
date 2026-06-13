@@ -66,6 +66,28 @@ start_anomaly_tail() {
   echo $!
 }
 
+# ---- minidump grabber (background sub-job) ----------------------------------
+# CS2's breakpad writes /tmp/dumps/*.dmp on a crash, UPLOADS it out-of-process,
+# then DELETES it within ~1-2s ("upload yes: success" → gone). A poll-on-death
+# loop misses that window. Watch the dir with inotify and hard-link/copy each
+# .dmp to crash-reports/dumps/ the instant it appears — before breakpad reaps
+# it. This is what makes "wait for the minidump" actually yield a local file.
+start_dump_grabber() {
+  mkdir -p "$OUT_ROOT/dumps"
+  command -v inotifywait >/dev/null 2>&1 || { echo ""; return; }
+  ( inotifywait -m -q -e create -e moved_to --format '%f' "$DUMPS_DIR" 2>/dev/null \
+    | while IFS= read -r fn; do
+        case "$fn" in
+          *.dmp)
+            # cp immediately; the source may vanish mid-copy — that's fine.
+            cp -f "$DUMPS_DIR/$fn" "$OUT_ROOT/dumps/$fn" 2>/dev/null \
+              && printf '[%s] GRABBED minidump %s\n' "$(stamp)" "$fn" >> "$ANOMALY_LOG"
+            ;;
+        esac
+      done ) &
+  echo $!
+}
+
 # ---- crash snapshot ---------------------------------------------------------
 snapshot() {
   local staged="${1:-}"   # optional T+0 server.log copy (see main loop)
@@ -165,9 +187,22 @@ snapshot() {
   echo "$dir"
 }
 
+# Single-instance guard. Repeated Monitor restarts left orphaned anomaly-tail
+# subshells (SIGKILL skips the EXIT trap), which then double-logged with stale
+# filters. A pidfile + liveness check keeps exactly one watcher alive.
+PIDFILE="$OUT_ROOT/.crash-watch.pid"
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+  echo "[$(stamp)] another crash-watch (pid $(cat "$PIDFILE")) is alive — exiting" >> "$ANOMALY_LOG"
+  exit 0
+fi
+echo $$ > "$PIDFILE"
+
 echo "[$(stamp)] crash-watch started (poll ${POLL}s, out=$OUT_ROOT)" >> "$ANOMALY_LOG"
 ANOM_PID=$(start_anomaly_tail)
-trap 'kill $ANOM_PID 2>/dev/null' EXIT
+DUMP_PID=$(start_dump_grabber)
+# Kill our whole process group's children on exit (covers the tail/inotify
+# subshells that a bare `kill $PID` orphaned before).
+trap 'kill $ANOM_PID $DUMP_PID 2>/dev/null; pkill -P $$ 2>/dev/null; rm -f "$PIDFILE" 2>/dev/null' EXIT
 
 # Wait until the server is up the first time, so we don't false-trigger on a
 # down server we were started alongside.
