@@ -21,6 +21,14 @@ public sealed class Settings
     [JsonPropertyName("enable_gloves")]
     public bool EnableGloves { get; set; } = true;
 
+    /// <summary>Apply custom agent (player) models via pawn.SetModel. DEFAULT
+    /// OFF — SetModel rebuilds the animation graph and the engine crashes
+    /// walking it (use-after-free, #11; 18+ identical minidumps). Weapon/knife/
+    /// glove/sticker skins are independent of this. Leave off unless a
+    /// SetModel-free agent path is implemented.</summary>
+    [JsonPropertyName("enable_agents")]
+    public bool EnableAgents { get; set; } = false;
+
     /// <summary>True = apply skins to Replica-managed bots too.
     /// False = only real human players.</summary>
     [JsonPropertyName("apply_to_revive_bots")]

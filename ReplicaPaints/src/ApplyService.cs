@@ -211,6 +211,7 @@ public sealed class ApplyService
     /// pre-activation, far earlier than the spawn-event stagger).</summary>
     public void OnPawnCreated(CCSPlayerPawn pawn)
     {
+        if (!_settings.EnableAgents) return;   // agent apply off → no pre-spawn work
         Server.NextFrame(() =>
         {
             try
@@ -477,6 +478,20 @@ public sealed class ApplyService
     /// up automatically on the next frame.</summary>
     private void ApplyAgent(CCSPlayerController player, CCSPlayerPawn pawn, PlayerKind kind)
     {
+        // #11 — agent player-model apply DISABLED. pawn.SetModel rebuilds the
+        // pawn's animation graph; the engine's animation tree walk races that
+        // free into a use-after-free crash (libanimationsystem+0x60cdf1, 18+
+        // minidumps, byte-identical stack). Every fix that kept SetModel
+        // failed: per-pawn redundant guard (still crashed hourly), pre-spawn
+        // OnEntityCreated (crashed INSTANTLY — mass SetModel burst on the
+        // spawn). Owner confirmed agent models weren't even wanted/used here,
+        // so the right call is to not call SetModel at all. Weapon / knife /
+        // glove / sticker skins are unaffected (separate apply paths). If
+        // agents are ever wanted back, they need a SetModel-free mechanism
+        // (e.g. m_nModelIndex via a creation-time hook that the engine treats
+        // as the initial model). Gated by Settings.EnableAgents (default off).
+        if (!_settings.EnableAgents) return;
+
         var team = (CsTeam)player.TeamNum;
         if (team is CsTeam.None or CsTeam.Spectator) return;
 
