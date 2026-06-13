@@ -200,6 +200,32 @@ public sealed class ApplyService
         return InspectResult.Applied;
     }
 
+    /// <summary>#11 pre-spawn model set. Called from OnEntityCreated for a
+    /// player pawn — the earliest hook, before the engine has built/walked
+    /// the pawn's animation graph from the default model. Setting the agent
+    /// model HERE makes it the pawn's initial model, so there's no later
+    /// free+rebuild of an in-use graph (which the engine's animation tree
+    /// walk races into the use-after-free crash). Records into the per-pawn
+    /// guard so the post-spawn staggered ApplyAgent then SKIPS its SetModel.
+    /// One frame of defer so the controller link + team are populated (still
+    /// pre-activation, far earlier than the spawn-event stagger).</summary>
+    public void OnPawnCreated(CCSPlayerPawn pawn)
+    {
+        Server.NextFrame(() =>
+        {
+            try
+            {
+                if (pawn == null || !pawn.IsValid) return;
+                var ch = pawn.Controller;
+                if (ch == null || ch.Value == null) return;
+                var player = new CCSPlayerController(ch.Value.Handle);
+                if (!ShouldApply(player, out var kind)) return;
+                ApplyAgent(player, pawn, kind);   // guarded SetModel + memo
+            }
+            catch (Exception ex) { Log.Debug($"OnPawnCreated: {ex.Message}"); }
+        });
+    }
+
     public void OnPlayerSpawn(CCSPlayerController player)
     {
         if (!ShouldApply(player, out _)) return;

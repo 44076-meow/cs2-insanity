@@ -34,6 +34,9 @@ public sealed class ReplicaPaintsPlugin : BasePlugin
         RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventPlayerDeath>(OnPlayerDeath);
         RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
+        // #11: set the agent model at pawn CREATION (pre-graph-build) so it's
+        // the initial model — no later free+swap the animation walk can UAF on.
+        RegisterListener<Listeners.OnEntityCreated>(OnEntityCreated);
         // Buy-burst safety: weapon applies are queued and drained at a
         // fixed per-tick budget (see ApplyService.DrainWeaponApplyQueue).
         RegisterListener<Listeners.OnTick>(() => _apply?.DrainWeaponApplyQueue());
@@ -170,6 +173,17 @@ public sealed class ReplicaPaintsPlugin : BasePlugin
         try { _apply?.OnRoundPrestart(); }
         catch (Exception ex) { Log.Warn($"OnRoundPrestart: {ex.Message}"); }
         return HookResult.Continue;
+    }
+
+    private void OnEntityCreated(CEntityInstance entity)
+    {
+        try
+        {
+            if (_apply == null) return;
+            if (entity.DesignerName != "player") return;   // CCSPlayerPawn
+            _apply.OnPawnCreated(new CCSPlayerPawn(entity.Handle));
+        }
+        catch (Exception ex) { Log.Debug($"OnEntityCreated: {ex.Message}"); }
     }
 
     private void OnEntitySpawned(CEntityInstance entity)
