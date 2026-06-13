@@ -68,13 +68,18 @@ start_anomaly_tail() {
 
 # ---- crash snapshot ---------------------------------------------------------
 snapshot() {
+  local staged="${1:-}"   # optional T+0 server.log copy (see main loop)
   local dir="$OUT_ROOT/$(ts)"
   mkdir -p "$dir"
   local report="$dir/crash-report.md"
 
-  # 1. server.log — copy NOW before any reboot truncates it.
-  [ -f "$SERVER_LOG" ] && cp -f "$SERVER_LOG" "$dir/server.log" 2>/dev/null
-  local logtail; logtail=$(tail -40 "$SERVER_LOG" 2>/dev/null)
+  # 1. server.log — prefer the T+0 staged copy (the auto-restart watchdog can
+  #    truncate the live file within ~3s via tee on its restart). Fall back to
+  #    the live file if no stage was passed.
+  local srclog="$SERVER_LOG"
+  [ -n "$staged" ] && [ -s "$staged" ] && srclog="$staged"
+  [ -f "$srclog" ] && cp -f "$srclog" "$dir/server.log" 2>/dev/null
+  local logtail; logtail=$(tail -40 "$srclog" 2>/dev/null)
 
   # 2. dmesg fault lines (last few cs2 faults).
   local faults; faults=$(sudo dmesg -T 2>/dev/null | grep -iE 'cs2.*(segfault|general protection|trap)' | tail -4)
@@ -169,15 +174,19 @@ trap 'kill $ANOM_PID 2>/dev/null' EXIT
 while ! dedik_pid >/dev/null; do sleep "$POLL"; done
 echo "[$(stamp)] dedicated server detected (pid $(dedik_pid)) — watching" >> "$ANOMALY_LOG"
 
+STAGE="/tmp/crash-watch-staged-serverlog"
 while true; do
   if ! dedik_pid >/dev/null; then
-    # Grace: give a real reboot a couple seconds (avoid snapping our own
-    # intentional restarts mid-swap). If it comes back fast, it was a managed
-    # restart; if it stays down, snapshot.
-    sleep 3
-    if dedik_pid >/dev/null; then continue; fi
-    DIR=$(snapshot)
-    echo "[$(stamp)] CRASH SNAPSHOT -> $DIR" >> "$ANOMALY_LOG"
+    # T+0: stage server.log IMMEDIATELY. The mode-b-watchdog's auto-restart
+    # (or any restart) truncates it via tee within ~3s, and its relaunch can
+    # bring the PID back inside the grace below — so we must grab the crash
+    # tail before the grace, not after.
+    cp -f "$SERVER_LOG" "$STAGE" 2>/dev/null
+    # Always snapshot on death; the report's verdict distinguishes a real
+    # fault from a clean/intentional restart (no dmesg fault → "clean exit").
+    sleep 2
+    DIR=$(snapshot "$STAGE")
+    echo "[$(stamp)] DEATH SNAPSHOT -> $DIR" >> "$ANOMALY_LOG"
     echo "CRASH_SNAPSHOT $DIR"
     [ "$ONCE" = "1" ] && exit 0
     # Wait for the server to come back before resuming watch (don't spam).
