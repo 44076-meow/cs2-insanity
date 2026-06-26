@@ -77,7 +77,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
@@ -163,14 +163,14 @@ jobs:
 
       - name: Cache hl2sdk clone
         id: cache-hl2sdk
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ReplicaHider/hl2sdk
           key: hl2sdk-${{ env.HL2SDK_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
 
       - name: Cache metamod-source clone
         id: cache-mmsource
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ReplicaHider/mmsource
           key: mmsource-${{ env.MMSOURCE_BRANCH }}-${{ hashFiles('.github/workflows/build.yml') }}
