@@ -172,12 +172,12 @@ public sealed class PersonaRegistry
         var nowIso = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
 
         // CONTRACT: `reservedNames` is a set of NORMALIZED keys produced
-        // by FakeClientManager.Normalize (NFKC + lowercase + Cyrillic→
+        // by NameKey.Normalize (NFKC + lowercase + Cyrillic→
         // Latin transliteration + leetspeak digit strip). Display names
         // in the registry preserve original case; we canonicalize for
         // lookup so 'kennyS' (registry) collides with 'KennyS' (human)
         // and 'Нагибатор' (registry) collides with 'Nagibator' (human).
-        static string Norm(string s) => FakeClientManager.Normalize(s);
+        static string Norm(string s) => NameKey.Normalize(s);
 
         // (1) Reuse a dormant persona.
         var dormant = OrderForReuse(_byId.Values.Where(p => !p.IsActive))
