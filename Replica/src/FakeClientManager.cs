@@ -44,7 +44,6 @@ public sealed partial class FakeClientManager : IDisposable
     private readonly MemoryPatch _navPatch = new("BotNavIgnore");
     private readonly PoolMmap _pool = new();
     private readonly Dictionary<int, FakeClient> _byId = new();
-    private readonly HashSet<ulong> _usedSteamIds = new();
     private readonly PersonaRegistry _registry;
     // Personas issued via Spawn() but not yet adopted via AdoptController.
     // FIFO order matches engine's bot_add processing — first push, first adopt.
@@ -67,7 +66,6 @@ public sealed partial class FakeClientManager : IDisposable
     private int _nextId = 1;
     private int _tick;
     private int _ticksSinceSummary;
-    private bool _navPatched;
 
     // Slot → normalized name of currently connected human players.
     // Maintained at OnClientPutInServer (humans only) and torn down at
@@ -252,7 +250,6 @@ public sealed partial class FakeClientManager : IDisposable
         {
             Log.Warn("BotNavIgnore patch ENABLED — version-fragile, may crash");
             patchOk = _navPatch.Apply("BotNavIgnore", new byte[] { 0xEB });
-            _navPatched = patchOk;
             patchReason = patchOk ? "ok" : (_navPatch.Error ?? "unknown");
             Log.Info($"patch BotNavIgnore: {patchReason}");
         }
@@ -565,7 +562,6 @@ public sealed partial class FakeClientManager : IDisposable
         // enforcer converges actual→intended within one pass (≤0.5s) from
         // the safety of OnTick, with grace holding the requested team.
         _byId[id] = fc;
-        _usedSteamIds.Add(persona.SteamId64);
         // Publish persona name into pool so C++ Hider's CPiS safety-net
         // can also re-overwrite engine-side m_Name on mapchange-rebuilt
         // CServerSideClient instances (defensive — primary path is CFC PRE).
