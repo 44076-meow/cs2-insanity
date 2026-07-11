@@ -36,13 +36,6 @@ public sealed class ReplicaPlugin : BasePlugin
         Server.ExecuteCommand("sv_hibernate_when_empty 0");
 
         RegisterListener<Listeners.OnTick>(_manager.OnTick);
-        // AimProbe tick driver — Step 0 of the Aim Module v1 spec.
-        // Registered SEPARATELY (not inside FakeClientManager.OnTick) so its
-        // lifetime is independent of bot management; probe runs even on
-        // freshly connected slots that haven't been adopted yet. Cheap when
-        // the pin map is empty (early-out).
-        RegisterListener<Listeners.OnTick>(AimProbe.OnTick);
-        RegisterListener<Listeners.OnTick>(AimLookflowProbe.OnTick);
         RegisterListener<Listeners.OnMapStart>(map =>
         {
             try { _manager?.OnMapStart(); }
@@ -513,129 +506,6 @@ public sealed class ReplicaPlugin : BasePlugin
     }
 
     // ──────────────────────────────────────────────────────────────────
-    // Stage 4 probes (temporary live-verification commands; see Probe.cs)
-    // ──────────────────────────────────────────────────────────────────
-
-    [ConsoleCommand("replica_probe_glow", "Probe 1: tint a bot's pawn red via m_clrRender")]
-    [RequiresPermissions("@css/cheats")]
-    [CommandHelper(minArgs: 1, usage: "<slot> [r g b]")]
-    public void OnProbeGlow(CCSPlayerController? caller, CommandInfo info)
-    {
-        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
-        if (!int.TryParse(info.GetArg(1), out var slot)) {
-            info.ReplyToCommand("[probe] usage: replica_probe_glow <slot> [r g b]");
-            return;
-        }
-        byte r = 255, g = 0, b = 0;
-        if (info.ArgCount >= 5
-            && byte.TryParse(info.GetArg(2), out var pr)
-            && byte.TryParse(info.GetArg(3), out var pg)
-            && byte.TryParse(info.GetArg(4), out var pb)) { r = pr; g = pg; b = pb; }
-        info.ReplyToCommand($"[probe] {Probe.Glow(slot, r, g, b)}");
-    }
-
-    [ConsoleCommand("replica_probe_c4", "Probe 2: GiveNamedItem(weapon_c4) on a bot")]
-    [RequiresPermissions("@css/cheats")]
-    [CommandHelper(minArgs: 1, usage: "<slot>")]
-    public void OnProbeC4(CCSPlayerController? caller, CommandInfo info)
-    {
-        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
-        if (!int.TryParse(info.GetArg(1), out var slot)) {
-            info.ReplyToCommand("[probe] usage: replica_probe_c4 <slot>");
-            return;
-        }
-        info.ReplyToCommand($"[probe] {Probe.GiveC4(slot)}");
-    }
-
-    [ConsoleCommand("replica_probe_hurtzero", "Probe 3: arm/disarm BotDamagePatch as alt damage filter")]
-    [RequiresPermissions("@css/cheats")]
-    [CommandHelper(minArgs: 0, usage: "[arm|disarm]")]
-    public void OnProbeHurtZero(CCSPlayerController? caller, CommandInfo info)
-    {
-        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
-        var arg = info.ArgCount > 1 ? info.GetArg(1).Trim().ToLowerInvariant() : "arm";
-        var msg = arg == "disarm" ? Probe.HurtZeroDisarm(_manager) : Probe.HurtZeroArmOnce(_manager);
-        info.ReplyToCommand($"[probe] {msg}");
-    }
-
-    // ──────────────────────────────────────────────────────────────────
-    // Aim Module v1 — Step 0 probes (AimProbe.cs). Verifies that a write
-    // path for view angles exists from CSSharp before the parametric model
-    // is built. Drop these once one of three methods is empirically green.
-    // ──────────────────────────────────────────────────────────────────
-
-    [ConsoleCommand("replica_probe_aim_pin",
-        "Aim probe: write fixed (pitch,yaw) every tick for N seconds")]
-    [RequiresPermissions("@css/cheats")]
-    [CommandHelper(minArgs: 3, usage: "<slot> <pitch> <yaw> [seconds=5] [method=vangle|eye|teleport]")]
-    public void OnProbeAimPin(CCSPlayerController? caller, CommandInfo info)
-    {
-        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
-        if (!int.TryParse(info.GetArg(1), out var slot)
-            || !float.TryParse(info.GetArg(2),
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var pitch)
-            || !float.TryParse(info.GetArg(3),
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var yaw))
-        {
-            info.ReplyToCommand("[probe] usage: replica_probe_aim_pin <slot> <pitch> <yaw> [seconds] [method]");
-            return;
-        }
-        int seconds = 5;
-        if (info.ArgCount >= 5 && int.TryParse(info.GetArg(4), out var s)) seconds = Math.Clamp(s, 1, 30);
-        var method = info.ArgCount >= 6 ? AimProbe.ParseMethod(info.GetArg(5)) : AimProbe.Method.VAngle;
-        info.ReplyToCommand($"[probe] {AimProbe.PinSlot(slot, pitch, yaw, seconds, method)}");
-    }
-
-    [ConsoleCommand("replica_probe_aim_persist",
-        "Aim probe: write (pitch,yaw) ONCE then observe drift for 3s")]
-    [RequiresPermissions("@css/cheats")]
-    [CommandHelper(minArgs: 3, usage: "<slot> <pitch> <yaw> [method=vangle|eye|teleport]")]
-    public void OnProbeAimPersist(CCSPlayerController? caller, CommandInfo info)
-    {
-        if (_manager == null) { info.ReplyToCommand("[Replica] not loaded"); return; }
-        if (!int.TryParse(info.GetArg(1), out var slot)
-            || !float.TryParse(info.GetArg(2),
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var pitch)
-            || !float.TryParse(info.GetArg(3),
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var yaw))
-        {
-            info.ReplyToCommand("[probe] usage: replica_probe_aim_persist <slot> <pitch> <yaw> [method]");
-            return;
-        }
-        var method = info.ArgCount >= 5 ? AimProbe.ParseMethod(info.GetArg(4)) : AimProbe.Method.VAngle;
-        info.ReplyToCommand($"[probe] {AimProbe.PersistSlot(slot, pitch, yaw, method)}");
-    }
-
-    [ConsoleCommand("replica_probe_aim_unpin",
-        "Aim probe: cancel a pin (slot or 'all')")]
-    [RequiresPermissions("@css/cheats")]
-    [CommandHelper(minArgs: 0, usage: "[slot|all]")]
-    public void OnProbeAimUnpin(CCSPlayerController? caller, CommandInfo info)
-    {
-        int slot = -1;
-        if (info.ArgCount > 1 && info.GetArg(1).Trim().ToLowerInvariant() != "all"
-            && !int.TryParse(info.GetArg(1), out slot))
-        {
-            info.ReplyToCommand("[probe] usage: replica_probe_aim_unpin [slot|all]");
-            return;
-        }
-        info.ReplyToCommand($"[probe] {AimProbe.Unpin(slot)}");
-    }
-
-    [ConsoleCommand("replica_probe_aim_status",
-        "Aim probe: list active pins")]
-    [RequiresPermissions("@css/cheats")]
-    public void OnProbeAimStatus(CCSPlayerController? caller, CommandInfo info)
-    {
-        foreach (var line in AimProbe.Status().Split('\n'))
-            info.ReplyToCommand($"[probe] {line}");
-    }
-
-    // ──────────────────────────────────────────────────────────────────
     // Aim Hook — PRE-detour on libserver.so:CCSBot::UpdateLookAngles
     // Writes m_lookPitch/Yaw before bot AI smoother reads them.
     // ──────────────────────────────────────────────────────────────────
@@ -735,30 +605,6 @@ public sealed class ReplicaPlugin : BasePlugin
         pitch = Math.Clamp(pitch, -89f, 89f);
         pool.WriteAimSlot(slot, botKey, enabled: true, pitch: pitch, yaw: yaw);
         info.ReplyToCommand($"[aimperslot] slot={slot} botKey=0x{botKey:X} pitch={pitch:F1} yaw={yaw:F1}");
-    }
-
-    [ConsoleCommand("replica_probe_lookflow",
-        "Capture per-tick m_lookPitch/Yaw + m_angEyeAngles for one bot to discriminate engine-target vs smoother-output")]
-    [RequiresPermissions("@css/cheats")]
-    [CommandHelper(minArgs: 1, usage: "<slot> [ticks=256]  |  stop")]
-    public void OnAimProbeLookflow(CCSPlayerController? caller, CommandInfo info)
-    {
-        var first = info.GetArg(1).Trim().ToLowerInvariant();
-        if (first is "stop" or "off")
-        {
-            AimLookflowProbe.StopEarly();
-            info.ReplyToCommand("[lookflow] stop requested; dump in server.log");
-            return;
-        }
-        if (!int.TryParse(first, out var slot) || slot < 0 || slot > 63)
-        {
-            info.ReplyToCommand("[lookflow] usage: replica_probe_lookflow <slot> [ticks=256] | stop");
-            return;
-        }
-        int ticks = 256;
-        if (info.ArgCount >= 3 && int.TryParse(info.GetArg(2), out var t)) ticks = Math.Clamp(t, 16, 4096);
-        AimLookflowProbe.Start(slot, ticks);
-        info.ReplyToCommand($"[lookflow] armed slot={slot} ticks={ticks}; engage the bot, dump fires automatically into server.log");
     }
 
     [ConsoleCommand("replica_aim_hook_set",
