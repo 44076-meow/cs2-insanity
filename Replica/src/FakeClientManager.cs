@@ -22,7 +22,7 @@ namespace Replica;
 //   - _pendingPersonaIds — FIFO of persona ids issued via Spawn(personaId)
 //     but not yet adopted. AdoptController dequeues to match the engine's
 //     bot_add → CFC PRE → OCC → CPiS arrival order.
-public sealed class FakeClientManager : IDisposable
+public sealed partial class FakeClientManager : IDisposable
 {
     // Fallback name corpus. Used when AcquireForSpawn needs to mint a new
     // persona and the registry is empty (or all personas are reserved).
@@ -89,87 +89,6 @@ public sealed class FakeClientManager : IDisposable
     //       (registry refreshes via AcquireForSpawn at respawn)
     // Low impact in practice: humans don't connect mid-batch-spawn.
     private readonly Dictionary<int, string> _humanNamesBySlot = new();
-
-    /// <summary>
-    /// Canonical compare key for name collision detection. Pipeline:
-    /// NFKC → trim → lowercase → Cyrillic→Latin transliteration →
-    /// leetspeak digit strip in letter-bearing runs. Display name
-    /// preserves original case; only the lookup key is canonical.
-    /// 'Нагибатор' / 'Nagibator' / 'NaGiBaToR' collapse to the same key;
-    /// 'Tr1ck5t3r' / 'trickster' collapse; 'killer_2010' keeps its year
-    /// suffix (digits in pure-numeric runs are NOT folded).
-    /// </summary>
-    public static string Normalize(string s)
-    {
-        if (string.IsNullOrEmpty(s)) return string.Empty;
-        var folded = s.Normalize(NormalizationForm.FormKC).Trim().ToLowerInvariant();
-        folded = TransliterateCyrillic(folded);
-        folded = StripLeetspeak(folded);
-        return folded;
-    }
-
-    private static string TransliterateCyrillic(string s)
-    {
-        var sb = new StringBuilder(s.Length);
-        foreach (var c in s)
-        {
-            sb.Append(c switch
-            {
-                'а' => "a",  'б' => "b",  'в' => "v",  'г' => "g",  'д' => "d",
-                'е' => "e",  'ё' => "e",  'ж' => "zh", 'з' => "z",  'и' => "i",
-                'й' => "y",  'к' => "k",  'л' => "l",  'м' => "m",  'н' => "n",
-                'о' => "o",  'п' => "p",  'р' => "r",  'с' => "s",  'т' => "t",
-                'у' => "u",  'ф' => "f",  'х' => "h",  'ц' => "ts", 'ч' => "ch",
-                'ш' => "sh", 'щ' => "shch", 'ъ' => "", 'ы' => "y",  'ь' => "",
-                'э' => "e",  'ю' => "yu", 'я' => "ya",
-                _ => c.ToString(),
-            });
-        }
-        return sb.ToString();
-    }
-
-    // Substitute leet digits with their letter equivalents only inside
-    // alphanumeric runs that contain at least one ASCII letter. A run is
-    // a maximal contiguous span of [a-z0-9]. This keeps numeric-suffix
-    // patterns ('killer_2010', 'lol_228') intact while collapsing
-    // letter-mixed leet ('Tr1ck5t3r' → 'trickster', 'n00b' → 'noob').
-    private static string StripLeetspeak(string s)
-    {
-        var sb = new StringBuilder(s.Length);
-        int i = 0;
-        while (i < s.Length)
-        {
-            char c = s[i];
-            bool alnum = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
-            if (!alnum) { sb.Append(c); i++; continue; }
-            int j = i;
-            bool hasLetter = false;
-            while (j < s.Length)
-            {
-                char cj = s[j];
-                bool ja = (cj >= 'a' && cj <= 'z') || (cj >= '0' && cj <= '9');
-                if (!ja) break;
-                if (cj >= 'a' && cj <= 'z') hasLetter = true;
-                j++;
-            }
-            for (int k = i; k < j; k++)
-            {
-                char ch = s[k];
-                if (hasLetter && ch >= '0' && ch <= '9')
-                {
-                    ch = ch switch
-                    {
-                        '0' => 'o', '1' => 'i', '3' => 'e',
-                        '4' => 'a', '5' => 's', '7' => 't',
-                        _ => ch,
-                    };
-                }
-                sb.Append(ch);
-            }
-            i = j;
-        }
-        return sb.ToString();
-    }
 
     /// <summary>
     /// Re-assert engine `bot_quota` to match (active + pending) bot count.
@@ -411,11 +330,11 @@ public sealed class FakeClientManager : IDisposable
             // preserves original case in the registry; only the lookup key
             // is normalized.
             var reserved = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var p in _registry.Active) reserved.Add(Normalize(p.Name));
+            foreach (var p in _registry.Active) reserved.Add(NameKey.Normalize(p.Name));
             foreach (var (pid, _, _) in _pendingPersonaIds)
             {
                 var p2 = _registry.GetById(pid);
-                if (p2 != null) reserved.Add(Normalize(p2.Name));
+                if (p2 != null) reserved.Add(NameKey.Normalize(p2.Name));
             }
             foreach (var humanName in _humanNamesBySlot.Values)
                 reserved.Add(humanName);  // already normalized
@@ -486,7 +405,7 @@ public sealed class FakeClientManager : IDisposable
                 // Track human name for AcquireForSpawn collision-avoidance.
                 // Stored normalized (NFKC + lowercase) so 'kennyS' (human)
                 // blocks bot mint of 'kennys' or 'KennyS' alike.
-                var key = Normalize(c.PlayerName ?? "");
+                var key = NameKey.Normalize(c.PlayerName ?? "");
                 if (!string.IsNullOrEmpty(key))
                     _humanNamesBySlot[slot] = key;
                 return;
@@ -911,172 +830,6 @@ public sealed class FakeClientManager : IDisposable
         EnforceBotQuota();
     }
 
-    /// <summary>
-    /// 1Hz sweep of <see cref="_pendingPersonaIds"/> — drops entries older
-    /// than <see cref="PendingTimeoutTicks"/> (5 s). Without this, a silent
-    /// bot_add refusal (engine race, gamemode lock, warmup transition) leaves
-    /// persona IDs in the queue forever — Reconcile sums them into `total`
-    /// and stops growing the fleet because it thinks the spawns are still
-    /// in flight. Issue #9.
-    /// </summary>
-
-    // ─── Fleet-team enforcement ──────────────────────────────────────────
-    // The engine re-assigns bot teams behind our back: `bot_add ct|t` is
-    // advisory (ChangeTeam logs `willSwitch 0` denials), and on EVERY match
-    // end the game dumps all players to <Unassigned> and brings back only a
-    // few (issue #187 — reproduced 3/3). RevealController enforces teams
-    // per tick but only while a reveal is active; this is the steady-state
-    // counterpart for the plain fleet.
-    //
-    // Policy per pass (every TeamEnforceIntervalTicks, outside mapchange
-    // and reveal):
-    //   - mass dump (≥2 managed bots in Unassigned): repair EVERYONE to
-    //     their intended fc.Team — the match-end signature, deterministic
-    //     restore beats whatever partial re-assignment the engine did;
-    //   - lone Unassigned bot: repair to fc.Team;
-    //   - valid CT↔T mismatch inside the spawn-grace window: hold the
-    //     requested team (this is what makes `replica_spawn_bots 2 ct`
-    //     actually stick);
-    //   - valid CT↔T mismatch after grace: ADOPT (fc.SetTeam) — halftime
-    //     swaps and scrambles are legitimate and must not be fought.
-    // Guards mirror RevealController.EnforceTeamMembership (#18/#98):
-    // skip invalid controllers and any slot holding an authorized human.
-    //
-    // Hang-safety (2026-06-13 post-mortem): SwitchTeam during the round
-    // teardown/spawn dance is the same race class as the v0.6.0.6
-    // SwitchTeam-vs-mp_restartgame bug, and mid-transition TeamNum reads
-    // 0 for every pawn-less controller — the old code would have seen a
-    // phantom "mass dump" at every round end and issued a full-fleet
-    // SwitchTeam burst inside the teardown frame. Now: a quiet window
-    // after every round/match lifecycle event (NoteRoundTransition, wired
-    // in ReplicaPlugin), a per-pass switch budget, a per-bot cooldown,
-    // and a give-up that adopts the engine's team after repeated refusals.
-    private int _ticksSinceTeamEnforce;
-    private int _quietUntilTick;
-    private bool _enforcerAnnounced;
-    private const int TeamEnforceIntervalTicks  = 32;   // 0.5s at 64 tick
-    private const int SpawnTeamGraceTicks       = 640;  // 10s
-    private const int TransitionQuietTicks      = 192;  // 3s
-    private const int MaxSwitchesPerPass        = 2;    // full 9-bot repair ≈ 2.5s
-    private const int PerBotSwitchCooldownTicks = 128;  // 2s
-    private const int GiveupWindowTicks         = 640;  // 10s
-    private const int GiveupSwitchLimit         = 4;
-
-    /// <summary>Round/match lifecycle event seen — hold all SwitchTeam
-    /// activity until the engine's teardown/spawn dance settles. The
-    /// match-end Unassigned dump (#187) is still repaired: enforcement
-    /// resumes 3s after the LAST transition event and restores whatever
-    /// the engine didn't bring back.</summary>
-    public void NoteRoundTransition(string reason)
-    {
-        _quietUntilTick = Server.TickCount + TransitionQuietTicks;
-    }
-
-    private void EnforceFleetTeams()
-    {
-        if (_byId.Count == 0) return;
-        if (IsMapchangeInProgress) return;
-        if (Server.TickCount < _quietUntilTick) return;
-        if (Reveal != null && Reveal.Stage != RevealController.RevealStage.Idle) return;
-
-        if (!_enforcerAnnounced)
-        {
-            _enforcerAnnounced = true;
-            Log.Info($"EnforceFleetTeams armed: interval={TeamEnforceIntervalTicks}t " +
-                     $"grace={SpawnTeamGraceTicks}t quiet={TransitionQuietTicks}t " +
-                     $"budget={MaxSwitchesPerPass}/pass cooldown={PerBotSwitchCooldownTicks}t");
-        }
-
-        int unassigned = 0;
-        foreach (var fc in _byId.Values)
-        {
-            CCSPlayerController? c = null;
-            try { c = Utilities.GetPlayerFromSlot(fc.Slot); } catch { }
-            if (c == null || !c.IsValid || c.AuthorizedSteamID != null) continue;
-            if (c.TeamNum < 2) unassigned++;
-        }
-        bool massRepair = unassigned >= 2;
-        int now = Server.TickCount;
-        int adopted = 0, deferred = 0, gaveUp = 0;
-        var planned = new List<(FakeClient Fc, CCSPlayerController Ctrl, int Intended)>();
-
-        foreach (var fc in _byId.Values)
-        {
-            CCSPlayerController? c = null;
-            try { c = Utilities.GetPlayerFromSlot(fc.Slot); } catch { }
-            if (c == null || !c.IsValid || c.AuthorizedSteamID != null) continue;
-
-            int actual   = c.TeamNum;
-            int intended = (int)fc.Team;
-            if (actual == intended) continue;
-
-            bool inGrace = now - fc.BindTick <= SpawnTeamGraceTicks;
-            if (!(actual < 2 || massRepair || inGrace))
-            {
-                // Valid CT↔T move after grace: halftime swap / scramble —
-                // legitimate, adopt instead of fighting.
-                fc.SetTeam(actual == 3 ? FakeTeam.CT : FakeTeam.T);
-                adopted++;
-                continue;
-            }
-
-            // Anti ping-pong: roll the 10s window, count issued switches.
-            if (now - fc.TeamSwitchWindowStart > GiveupWindowTicks)
-            {
-                fc.TeamSwitchWindowStart = now;
-                fc.TeamSwitchesInWindow  = 0;
-            }
-            if (fc.TeamSwitchesInWindow >= GiveupSwitchLimit)
-            {
-                // Engine reverted us GiveupSwitchLimit times in 10s —
-                // stop fighting (willSwitch-0 style refusal), follow it.
-                if (actual >= 2)
-                {
-                    fc.SetTeam(actual == 3 ? FakeTeam.CT : FakeTeam.T);
-                    gaveUp++;
-                    Telemetry.Write("team_enforce_giveup", new Dictionary<string, object?> {
-                        { "botId", fc.Id }, { "slot", fc.Slot },
-                        { "adoptedTeam", fc.Team.ToString() } });
-                }
-                continue;  // Unassigned + give-up: leave it; next window retries.
-            }
-
-            if (now - fc.LastTeamSwitchTick < PerBotSwitchCooldownTicks) { deferred++; continue; }
-            planned.Add((fc, c, intended));
-        }
-
-        // Budget: spread mass repairs over passes — the interval is 0.5s,
-        // a full 9-bot restore completes in ~2.5s without ever putting
-        // more than 2 engine team-change cascades into one frame.
-        if (planned.Count > MaxSwitchesPerPass)
-        {
-            deferred += planned.Count - MaxSwitchesPerPass;
-            planned.RemoveRange(MaxSwitchesPerPass, planned.Count - MaxSwitchesPerPass);
-        }
-
-        if (planned.Count > 0 || adopted > 0 || gaveUp > 0)
-        {
-            // Intent BEFORE action: if a SwitchTeam ever wedges the frame,
-            // the telemetry shows what was attempted (AutoFlush is on).
-            Log.Info($"EnforceFleetTeams: switching={planned.Count} adopted={adopted} " +
-                     $"gaveUp={gaveUp} deferred={deferred} unassigned={unassigned}" +
-                     (massRepair ? " (mass-repair)" : ""));
-            Telemetry.Write("team_enforce", new Dictionary<string, object?> {
-                { "switching", planned.Count }, { "adopted", adopted },
-                { "gaveUp", gaveUp }, { "deferred", deferred },
-                { "unassigned", unassigned }, { "mass", massRepair },
-                { "slots", string.Join(",", planned.Select(p => p.Fc.Slot)) } });
-        }
-
-        foreach (var (fc, c, intended) in planned)
-        {
-            fc.LastTeamSwitchTick = now;
-            fc.TeamSwitchesInWindow++;
-            try { c.SwitchTeam((CsTeam)intended); }
-            catch (Exception ex) { Log.Debug($"EnforceFleetTeams: switch slot={fc.Slot} → {fc.Team}: {ex.Message}"); }
-        }
-    }
-
     // ─── Roster-husk janitor ─────────────────────────────────────────────
     // Disconnected fake controllers sometimes survive as entities and keep
     // their team-roster membership — the scoreboard then shows phantom
@@ -1113,6 +866,14 @@ public sealed class FakeClientManager : IDisposable
             Telemetry.Write("husk_sweep", new Dictionary<string, object?> { { "removed", removed } });
     }
 
+    /// <summary>
+    /// 1Hz sweep of <see cref="_pendingPersonaIds"/> — drops entries older
+    /// than <see cref="PendingTimeoutTicks"/> (5 s). Without this, a silent
+    /// bot_add refusal (engine race, gamemode lock, warmup transition) leaves
+    /// persona IDs in the queue forever — Reconcile sums them into `total`
+    /// and stops growing the fleet because it thinks the spawns are still
+    /// in flight. Issue #9.
+    /// </summary>
     private void DrainStalePending()
     {
         if (_pendingPersonaIds.Count == 0) return;
